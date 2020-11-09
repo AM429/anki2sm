@@ -4,9 +4,10 @@ import re
 import shutil
 import sqlite3
 from datetime import datetime
+import time
 from os import listdir
 from os.path import isfile, join
-from pathlib import Path,WindowsPath
+from pathlib import Path, WindowsPath
 import json
 from collections import defaultdict
 from zipfile import ZipFile
@@ -103,28 +104,15 @@ def get_id_func():
 get_id = get_id_func()
 
 
-#   Commented until a better understanding of anki is reached
-#   	Code Source: https://groups.google.com/d/msg/supermemo_users/dTzhEog6zPk/8wqBk4qcCgAJ
-#       Its Author: Mnd Mau
-# def convert_time(x):
-# 	if x == '':
-# 		return ('')
-# 	space = x.find(' ')
-# 	if space == -1 and 'm' in x:
-# 		return (1)
-# 	if '(new)' in x:
-# 		return (0)
-# 	number = float(x[:space])
-# 	if 'months' in x:
-# 		return (round(number * 30))
-# 	elif 'years' in x:
-# 		return (round(number * 365))
-# 	elif 'day' in x:
-# 		return (round(number))
-#
-#
-# def scale_afactor(a, min_ease, max_ease):
-# 	return (6.868 - 1.3) * ((a - min_ease) / (max_ease - min_ease)) + 1.3
+def convert_time(x: str) -> int:
+	"""converts the interval into days"""
+	return 67 if int(x) <= 0 else round(int(x))
+
+
+def scale_afactor(a, min_ease, max_ease):
+	diff =(max_ease - min_ease)
+	return (6.868 - 1.3) * ((a - min_ease) / diff if diff > 0 else 1 ) + 1.3
+
 
 # ============================================= Some Util Functions =============================================
 
@@ -262,7 +250,8 @@ def buildModels(t: str):
 	flds = []
 	with IncrementalBar("\tBuilding Models", max=len(y.keys())) as bar:
 		for k in y.keys():
-			AnkiModels[str(y[k]["id"])] = Model(str(y[k]["id"]), y[k]["type"], y[k]["css"], y[k]["latexPre"], y[k]["latexPost"])
+			AnkiModels[str(y[k]["id"])] = Model(str(y[k]["id"]), y[k]["type"], y[k]["css"], y[k]["latexPre"],
+			                                    y[k]["latexPost"])
 			
 			for fld in y[k]["flds"]:
 				flds.append((fld["name"], fld["ord"]))
@@ -311,23 +300,37 @@ def buildNotes(path: Path):
 #   	Source: https://groups.google.com/d/msg/supermemo_users/dTzhEog6zPk/8wqBk4qcCgAJ
 #       Author: Mnd Mau
 #
-# def buildCardData(card: Card, minEase, maxEase):
-# 	if element[5] == '':
-# 		last_repetition = datetime.strptime(element[7], '%Y-%m-%d')
-# 	else:
-# 		last_repetition = datetime.strptime(element[5], '%Y-%m-%d')
-# 	current_interval = convert_time(element[2])
-# 	prior_interval = convert_time(element[6])
-# 	if prior_interval == '':
-# 		card.ufactor = format(current_interval, '.3f')
-# 	else:
-# 		card.ufactor = format(current_interval / prior_interval, '.3f')
-# 	if '(new)' in element[8]:
-# 		card.afactor = '3.000'
-# 	else:
-# 		ease = float(element[8][:-1])
-# 		card.afactor = str(format(scale_afactor(ease, minEase, maxEase), '.3f'))
-#
+# 0 Question =
+# 1 Answer =
+
+# 2 Interval = ivl in the cards table in the revlog and the cards table
+# 3 Number Repetitions = in the cards table
+# 4 Lapses = lapses in the cards table
+# 5 Last Repetition Date =  "select max(id) from revlog where cid = ?", card.id"
+# 6 Prior Interval = lastIvl  in the revlog table
+# 7 Date Card Created = basically the card id
+# 8 Ease = factor in the cards table
+
+def buildCardData(path: Path, card: Card, minEase, maxEase):
+	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
+	cursor = conn.cursor()
+	cursor.execute("SELECT MAX(id) FROM revlog WHERE cid=" + str(card.cid))
+	rows = cursor.fetchone()
+	current_interval = convert_time(card.interval)
+	
+	if len(rows) != 0:
+		# card is in the table
+		card.last_rep = time.strftime('%d.%m.%Y', time.localtime(float(rows[0]/1000)))
+		cursor.execute("SELECT lastIvl FROM revlog WHERE id=" + str(rows[0]))
+		rows = cursor.fetchone()
+		prior_interval = convert_time(rows[0])
+		card.ufactor = format(current_interval / prior_interval, '.3f')
+		card.afactor = str(format(scale_afactor(float(card.ease), float(minEase), float(maxEase)), '.3f'))
+	else:
+		card.last_rep = time.strftime('%d.%m.%Y', time.localtime(float(card.cid/1000)))
+		card.ufactor = format(current_interval, '.3f')
+		card.afactor = '3.000'
+
 
 def buildCardsAndDeck(path: Path):
 	global AnkiNotes, AnkiModels, Anki_Collections, totalCardCount, FAILED_DECKS
@@ -336,6 +339,8 @@ def buildCardsAndDeck(path: Path):
 	cursor.execute(
 		"SELECT * FROM cards ORDER BY factor ASC")  # min ease would at rows[0] and max index would be at rows[-1]
 	rows = cursor.fetchall()
+	min_ease = rows[0][10]
+	max_ease = rows[-1][10]
 	with IncrementalBar("\tBuilding Cards and deck", max=len(rows)) as bar:
 		for row in rows:
 			cid, nid, did, ordi, mod, usn, crtype, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data = row
@@ -354,7 +359,8 @@ def buildCardsAndDeck(path: Path):
 				questionTg = premailer.transform(questionTg)
 				answerTag = premailer.transform(answerTag)
 				genCard = Card(cid, questionTg, answerTag)
-			
+				genCard.ease, genCard.interval, genCard.lapses, genCard.repetitions = (factor, ivl, lapses, reps)
+				buildCardData(path, genCard, min_ease, max_ease)
 			elif reqNote.model.type == 1:
 				reqTemplate = getTemplateofOrd(reqNote.model.tmpls, 0)
 				
@@ -374,7 +380,7 @@ def buildCardsAndDeck(path: Path):
 				questionTg = premailer.transform(questionTg)
 				answerTag = premailer.transform(answerTag)
 				genCard = Card(cid, questionTg, answerTag)
-			
+				genCard.ease, genCard.interval, genCard.lapses, genCard.repetitions = (factor, ivl, lapses, reps)
 			if genCard is not None:
 				reqDeck = getDeckFromID(Anki_Collections, str(did))
 				if reqDeck is not None:
@@ -475,9 +481,9 @@ def SuperMemoCollection(d: dict, indent=0):
 
 def cardHasData(card: Card) -> bool:
 	if card != None:
-		return card.ufactor and card.afactor and \
-		       card.interval and card.lapses and \
-		       card.last_rep and card.repetitions
+		return card.ufactor !=None and card.afactor!=None and \
+		       card.interval!=None and card.lapses!=None and \
+		       card.last_rep !=None and card.repetitions !=None
 	else:
 		return False
 
@@ -654,20 +660,21 @@ def SuperMemoElement(card: Card) -> None:
 						with tag("Answer"):
 							text("F")
 			
-			if False and cardHasData(card):
+			if cardHasData(card) and IMPORT_LEARNING_DATA:
+				print("I HAVE DATA ")
 				with tag("LearningData"):
 					with tag("Interval"):
-						text("1")
+						text(str(card.interval))
 					with tag("Repetitions"):
-						text("1")
+						text(str(card.repetitions))
 					with tag("Lapses"):
-						text("0")
+						text(str(card.lapses))
 					with tag("LastRepetition"):
-						text(datetime.date("").strftime("%d.%m.%Y"))
+						text(str(card.last_rep))
 					with tag("AFactor"):
-						text("3.92")
+						text(str(card.afactor))
 					with tag("UFactor"):
-						text("3")
+						text(str(card.ufactor))
 
 
 def SuperMemoTopic(col, ttl) -> None:
@@ -790,14 +797,16 @@ def main():
 	
 	# moving media files to smmedia
 	files = os.listdir(os.getcwd() + "\\out\\out_files\\elements")
-	fonts= [x for x in files if x.endswith(".ttf")]
+	fonts = [x for x in files if x.endswith(".ttf")]
 	for font in fonts:
 		try:
-			font_path = os.getcwd() + "\\out\\out_files\\elements\\"+font
-			install_font(font_path.replace("\\","/"))
+			font_path = os.getcwd() + "\\out\\out_files\\elements\\" + font
+			install_font(font_path.replace("\\", "/"))
 		except:
-			ep("Error: Failed to install the font {}. \n\tRe-run script in admin mode if it is not or manually install it Path[{}].\n".format(font,font_path))
-			
+			ep(
+				"Error: Failed to install the font {}. \n\tRe-run script in admin mode if it is not or manually install it Path[{}].\n".format(
+					font, font_path))
+	
 	with IncrementalBar("Moving Media Files DON'T CLOSE!", max=len(files)) as bar:
 		for f in files:
 			if f not in os.listdir(str(os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\")):

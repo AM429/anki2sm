@@ -51,11 +51,13 @@ class Card:
 		self.cid = cid
 		self.q = qs
 		self.a = ans
+		self.ease = None
 		self.afactor =None
 		self.ufactor =None
 		self.lapses =None
 		self.last_rep = None
 		self.repetitions = None
+		self.prior_interval = None
 		self.interval = None
 		
 	def __str__(self):
