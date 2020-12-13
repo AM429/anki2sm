@@ -10,17 +10,33 @@ from Utils.HtmlUtils import get_rule_for_selector
 
 
 class CardRenderer(object):
-	def __init__(self, card: Card, AnkiNotes: Dict[str, Note]):
+	def __init__(self, AnkiNotes: Dict[str, Note]):
 		self._AnkiNotes = AnkiNotes
-		self._card = card
-	
-	def render(self):
-		reqNote = self._AnkiNotes[str(self.card.nid)]
+		
+	def render(self,card):
+		reqNote = self._AnkiNotes[str(card.nid)]
 		if reqNote.model.type == 0:
 			pass
 		elif reqNote.model.type == 1:
 			pass
 		pass
+	
+	def _renderToClozeCard(self, cid, ordi: str, reqNote) -> Card:
+		reqTemplate = self._getTemplateofOrd(reqNote.model.tmpls, 0)
+		mustache.filters["cloze"] = lambda txt: Formatters.cloze_q_filter(txt, str(int(ordi) + 1))
+		
+		css = reqNote.model.css
+		css = self._buildCssForOrd(css, ordi) if css else ""
+		
+		questionTg = "<style> " + css + " </style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
+		             + mustache.render(reqTemplate.qfmt, self._buildStubbleDict(reqNote)) + "</section>"
+		mustache.filters["cloze"] = lambda txt: Formatters.cloze_a_filter(txt, str(int(ordi) + 1))
+		answerTag = "<section class='card' style=\" height:100%; width:100%; margin:0; \">" \
+		            + mustache.render(reqTemplate.afmt, self.buildStubbleDict(reqNote)) + "</section>"
+		questionTg = premailer.transform(questionTg)
+		answerTag = premailer.transform(answerTag)
+		
+		return Card(cid, questionTg, answerTag)
 	
 	def _renderToClozeCard(self, cid, ordi: str, reqNote) -> Card:
 		reqTemplate = self._getTemplateofOrd(reqNote.model.tmpls, 0)
