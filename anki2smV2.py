@@ -49,6 +49,7 @@ AnkiNotes = {}
 AnkiModels = {}
 totalCardCount = 0
 
+
 doc, tag, text = Doc().tagtext()
 
 IMPORT_LEARNING_DATA = False
@@ -61,7 +62,7 @@ DEFAULT_SIDE = SIDES[2]
 
 IMAGES_TEMP = ()
 FAILED_DECKS = []
-
+DATA_ACCESS = None
 
 # ============================================ Other Util Stuff But Deck related =================================
 
@@ -294,17 +295,6 @@ def buildNotes(path: Path):
 			AnkiNotes[str(nid)].tags = EmptyString(tags).split(" ")
 			bar.next()
 		bar.finish()
-
-
-def buildCardForNote(note_id: int, note: Note, card_id: int, path: Path) -> [Card]:
-	global AnkiModels, Anki_Collections, totalCardCount, FAILED_DECKS
-	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
-	cursor = conn.cursor()
-	cursor.execute(f'SELECT * FROM cards WHERE nid = {str(note_id)}')
-	rows = cursor.fetchall()
-	for row in rows:
-		genCard = None
-	return None
 
 
 def buildCardsAndDeck(path: Path):
