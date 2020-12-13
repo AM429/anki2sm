@@ -84,12 +84,6 @@ def getDeckFromID(d, did: str):
 	return res
 
 
-def getTemplateofOrd(templates, ord: int):
-	for templ in templates:
-		if (templ.ord == ord):
-			return templ
-
-
 def get_id_func():
 	counter = itertools.count()
 	next(counter)
@@ -166,8 +160,8 @@ def unpack_db(path: Path) -> None:
 		buildColTree(decks)
 		buildModels(models)
 		buildNotes(path)
-		buildCardForNote(list(AnkiNotes.keys())[0],list(AnkiNotes.items())[0],0 ,path)
-		#buildCardsAndDeck(path)
+		buildCardForNote(list(AnkiNotes.keys())[0], list(AnkiNotes.items())[0], 0, path)
+	# buildCardsAndDeck(path)
 	print("\tExporting into xml...\n\n")
 	export(path)
 
@@ -286,8 +280,6 @@ def buildModels(t: str):
 		bar.finish()
 
 
-
-
 def buildNotes(path: Path):
 	global AnkiNotes
 	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
@@ -304,33 +296,7 @@ def buildNotes(path: Path):
 		bar.finish()
 
 
-#   Commented until a better understanding of anki is reached
-#   	Source: https://groups.google.com/d/msg/supermemo_users/dTzhEog6zPk/8wqBk4qcCgAJ
-#       Author: Mnd Mau
-#
-# def buildCardData(card: Card, minEase, maxEase):
-# 	if element[5] == '':
-# 		last_repetition = datetime.strptime(element[7], '%Y-%m-%d')
-# 	else:
-# 		last_repetition = datetime.strptime(element[5], '%Y-%m-%d')
-# 	current_interval = convert_time(element[2])
-# 	prior_interval = convert_time(element[6])
-# 	if prior_interval == '':
-# 		card.ufactor = format(current_interval, '.3f')
-# 	else:
-# 		card.ufactor = format(current_interval / prior_interval, '.3f')
-# 	if '(new)' in element[8]:
-# 		card.afactor = '3.000'
-# 	else:
-# 		ease = float(element[8][:-1])
-# 		card.afactor = str(format(scale_afactor(ease, minEase, maxEase), '.3f'))
-#
-# A note maps one to many cards. So it can return a list of Cards fo
-#
-#
-
-
-def buildCardForNote(note_id:int,note: Note, card_id: int, path: Path) -> [Card]:
+def buildCardForNote(note_id: int, note: Note, card_id: int, path: Path) -> [Card]:
 	global AnkiModels, Anki_Collections, totalCardCount, FAILED_DECKS
 	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
 	cursor = conn.cursor()
@@ -341,68 +307,69 @@ def buildCardForNote(note_id:int,note: Note, card_id: int, path: Path) -> [Card]
 	return None
 
 
-
 def buildCardsAndDeck(path: Path):
-	global AnkiNotes, AnkiModels, Anki_Collections, totalCardCount, FAILED_DECKS
-	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
-	cursor = conn.cursor()
-	cursor.execute(
-		"SELECT * FROM cards ORDER BY factor ASC")  # min ease would at rows[0] and max index would be at rows[-1]
-	rows = cursor.fetchall()
-	with IncrementalBar("\tBuilding Cards and deck", max=len(rows)) as bar:
-		for row in rows:
-			cid, nid, did, ordi, mod, usn, crtype, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data = row
-			reqNote = AnkiNotes[str(nid)]
-			genCard = None
-			
-			if reqNote.model.type == 0:
-				reqTemplate = getTemplateofOrd(reqNote.model.tmpls, int(ordi))
-				
-				questionTg = "<style> " + buildCssForOrd(reqNote.model.css, ordi) \
-				             + "</style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-				             + mustache.render(reqTemplate.qfmt, buildStubbleDict(reqNote)) + "</section>"
-				answerTag = "<style> " + buildCssForOrd(reqNote.model.css, ordi) \
-				            + "</style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-				            + mustache.render(reqTemplate.afmt, buildStubbleDict(reqNote)) + "</section>"
-				questionTg = premailer.transform(questionTg)
-				answerTag = premailer.transform(answerTag)
-				genCard = Card(cid, questionTg, answerTag)
-			
-			elif reqNote.model.type == 1:
-				reqTemplate = getTemplateofOrd(reqNote.model.tmpls, 0)
-				
-				mustache.filters["cloze"] = lambda txt: Formatters.cloze_q_filter(txt, str(int(ordi) + 1))
-				
-				css = reqNote.model.css
-				css = buildCssForOrd(css, ordi) if css else ""
-				
-				questionTg = "<style> " + css + " </style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-				             + mustache.render(reqTemplate.qfmt, buildStubbleDict(reqNote)) + "</section>"
-				
-				mustache.filters["cloze"] = lambda txt: Formatters.cloze_a_filter(txt, str(int(ordi) + 1))
-				
-				answerTag = "<section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-				            + mustache.render(reqTemplate.afmt, buildStubbleDict(reqNote)) + "</section>"
-				
-				questionTg = premailer.transform(questionTg)
-				answerTag = premailer.transform(answerTag)
-				genCard = Card(cid, questionTg, answerTag)
-			
-			if genCard is not None:
-				reqDeck = getDeckFromID(Anki_Collections, str(did))
-				if reqDeck is not None:
-					reqDeck.cards.append(genCard)
-				else:
-					if did not in FAILED_DECKS:
-						FAILED_DECKS.append(did)
-			else:
-				if did not in FAILED_DECKS:
-					FAILED_DECKS.append(did)
-			totalCardCount += 1
-			bar.next()
-		bar.finish()
+	pass
 
 
+# def buildCardsAndDeck(path: Path):
+# 	global AnkiNotes, AnkiModels, Anki_Collections, totalCardCount, FAILED_DECKS
+# 	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
+# 	cursor = conn.cursor()
+# 	cursor.execute(
+# 		"SELECT * FROM cards ORDER BY factor ASC")  # min ease would at rows[0] and max index would be at rows[-1]
+# 	rows = cursor.fetchall()
+# 	with IncrementalBar("\tBuilding Cards and deck", max=len(rows)) as bar:
+# 		for row in rows:
+# 			cid, nid, did, ordi, mod, usn, crtype, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data = row
+# 			reqNote = AnkiNotes[str(nid)]
+# 			genCard = None
+#
+# 			if reqNote.model.type == 0:
+# 				reqTemplate = getTemplateofOrd(reqNote.model.tmpls, int(ordi))
+#
+# 				questionTg = "<style> " + buildCssForOrd(reqNote.model.css, ordi) \
+# 				             + "</style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
+# 				             + mustache.render(reqTemplate.qfmt, buildStubbleDict(reqNote)) + "</section>"
+# 				answerTag = "<style> " + buildCssForOrd(reqNote.model.css, ordi) \
+# 				            + "</style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
+# 				            + mustache.render(reqTemplate.afmt, buildStubbleDict(reqNote)) + "</section>"
+# 				questionTg = premailer.transform(questionTg)
+# 				answerTag = premailer.transform(answerTag)
+# 				genCard = Card(cid, questionTg, answerTag)
+#
+# 			elif reqNote.model.type == 1:
+# 				reqTemplate = getTemplateofOrd(reqNote.model.tmpls, 0)
+#
+# 				mustache.filters["cloze"] = lambda txt: Formatters.cloze_q_filter(txt, str(int(ordi) + 1))
+#
+# 				css = reqNote.model.css
+# 				css = buildCssForOrd(css, ordi) if css else ""
+#
+# 				questionTg = "<style> " + css + " </style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
+# 				             + mustache.render(reqTemplate.qfmt, buildStubbleDict(reqNote)) + "</section>"
+#
+# 				mustache.filters["cloze"] = lambda txt: Formatters.cloze_a_filter(txt, str(int(ordi) + 1))
+#
+# 				answerTag = "<section class='card' style=\" height:100%; width:100%; margin:0; \">" \
+# 				            + mustache.render(reqTemplate.afmt, buildStubbleDict(reqNote)) + "</section>"
+#
+# 				questionTg = premailer.transform(questionTg)
+# 				answerTag = premailer.transform(answerTag)
+# 				genCard = Card(cid, questionTg, answerTag)
+#
+# 			if genCard is not None:
+# 				reqDeck = getDeckFromID(Anki_Collections, str(did))
+# 				if reqDeck is not None:
+# 					reqDeck.cards.append(genCard)
+# 				else:
+# 					if did not in FAILED_DECKS:
+# 						FAILED_DECKS.append(did)
+# 			else:
+# 				if did not in FAILED_DECKS:
+# 					FAILED_DECKS.append(did)
+# 			totalCardCount += 1
+# 			bar.next()
+# 		bar.finish()
 
 
 # ============================================= Import and Export Function =============================================

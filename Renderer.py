@@ -1,4 +1,6 @@
 import cssutils
+from typing import Dict
+
 import mustache
 import Formatters
 from Models import Card, Note
@@ -8,14 +10,20 @@ from Utils.HtmlUtils import get_rule_for_selector
 
 
 class CardRenderer(object):
-	def __init__(self,card: Card):
+	def __init__(self, card: Card, AnkiNotes: Dict[str, Note]):
+		self._AnkiNotes = AnkiNotes
 		self._card = card
 	
 	def render(self):
+		reqNote = self._AnkiNotes[str(self.card.nid)]
+		if reqNote.model.type == 0:
+			pass
+		elif reqNote.model.type == 1:
+			pass
 		pass
 	
-	def _renderToClozeCard(self,cid, ordi: str, reqNote) -> Card:
-		reqTemplate = getTemplateofOrd(reqNote.model.tmpls, 0)
+	def _renderToClozeCard(self, cid, ordi: str, reqNote) -> Card:
+		reqTemplate = self._getTemplateofOrd(reqNote.model.tmpls, 0)
 		mustache.filters["cloze"] = lambda txt: Formatters.cloze_q_filter(txt, str(int(ordi) + 1))
 		
 		css = reqNote.model.css
@@ -31,8 +39,8 @@ class CardRenderer(object):
 		
 		return Card(cid, questionTg, answerTag)
 	
-	def _renderToNormalCard(self,cid, ordi: str, reqNote: Note) -> Card:
-		reqTemplate = getTemplateofOrd(reqNote.model.tmpls, int(ordi))
+	def _renderToNormalCard(self, cid, ordi: str, reqNote: Note) -> Card:
+		reqTemplate = self._getTemplateofOrd(reqNote.model.tmpls, int(ordi))
 		
 		questionTg = "<style> " + self._buildCssForOrd(reqNote.model.css, ordi) \
 		             + "</style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
@@ -46,7 +54,7 @@ class CardRenderer(object):
 		
 		return Card(cid, questionTg, answerTag)
 	
-	def _buildStubbleDict(self,note: Note):
+	def _buildStubbleDict(self, note: Note):
 		cflds = note.flds.split(u"")
 		temp_dict = {}
 		for f, v in zip(note.model.flds, cflds):
@@ -54,7 +62,7 @@ class CardRenderer(object):
 		temp_dict["Tags"] = [i for i in note.tags if i]
 		return temp_dict
 	
-	def _buildCssForOrd(self,css, ordi):
+	def _buildCssForOrd(self, css, ordi):
 		pagecss = cssutils.parseString(css)
 		defaultCardCss = get_rule_for_selector(pagecss, ".card")
 		ordinalCss = get_rule_for_selector(pagecss, ".card{}".format(ordi + 1))
@@ -69,3 +77,8 @@ class CardRenderer(object):
 			return defaultCardCss.cssText
 		else:
 			return ""
+	
+	def _getTemplateofOrd(self, templates, ord: int):
+		for templ in templates:
+			if (templ.ord == ord):
+				return templ
