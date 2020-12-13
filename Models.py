@@ -57,6 +57,7 @@ class Card:
 		self.last_rep = None
 		self.repetitions = None
 		self.interval = None
+		self.nid = None
 		
 	def __str__(self):
 		return ("<Card{Question:" + EmptyString(self.q) + ",Answer:" + EmptyString(self.a) + "}>").replace("\n", "")

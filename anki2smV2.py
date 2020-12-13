@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime
 from os import listdir
 from os.path import isfile, join
-from pathlib import Path,WindowsPath
+from pathlib import Path, WindowsPath
 import json
 from collections import defaultdict
 from zipfile import ZipFile
@@ -166,7 +166,8 @@ def unpack_db(path: Path) -> None:
 		buildColTree(decks)
 		buildModels(models)
 		buildNotes(path)
-		buildCardsAndDeck(path)
+		buildCardForNote(list(AnkiNotes.keys())[0],list(AnkiNotes.items())[0],0 ,path)
+		#buildCardsAndDeck(path)
 	print("\tExporting into xml...\n\n")
 	export(path)
 
@@ -262,7 +263,8 @@ def buildModels(t: str):
 	flds = []
 	with IncrementalBar("\tBuilding Models", max=len(y.keys())) as bar:
 		for k in y.keys():
-			AnkiModels[str(y[k]["id"])] = Model(str(y[k]["id"]), y[k]["type"], y[k]["css"], y[k]["latexPre"], y[k]["latexPost"])
+			AnkiModels[str(y[k]["id"])] = Model(str(y[k]["id"]), y[k]["type"], y[k]["css"], y[k]["latexPre"],
+			                                    y[k]["latexPost"])
 			
 			for fld in y[k]["flds"]:
 				flds.append((fld["name"], fld["ord"]))
@@ -272,7 +274,9 @@ def buildModels(t: str):
 			
 			for tmpl in y[k]["tmpls"]:
 				templates.append(
-					Template(tmpl["name"], tmpl["qfmt"], tmpl["did"], tmpl["bafmt"], tmpl["afmt"], tmpl["ord"],
+					Template(tmpl["name"], tmpl["qfmt"],
+					         tmpl["did"], tmpl["bafmt"],
+					         tmpl["afmt"], tmpl["ord"],
 					         tmpl["bqfmt"]))
 			
 			AnkiModels[str(y[k]["id"])].tmpls = tuple(templates)
@@ -282,13 +286,6 @@ def buildModels(t: str):
 		bar.finish()
 
 
-def buildStubbleDict(note: Note):
-	cflds = note.flds.split(u"")
-	temp_dict = {}
-	for f, v in zip(note.model.flds, cflds):
-		temp_dict[str(f)] = str(v)
-	temp_dict["Tags"] = [i for i in note.tags if i]
-	return temp_dict
 
 
 def buildNotes(path: Path):
@@ -328,6 +325,22 @@ def buildNotes(path: Path):
 # 		ease = float(element[8][:-1])
 # 		card.afactor = str(format(scale_afactor(ease, minEase, maxEase), '.3f'))
 #
+# A note maps one to many cards. So it can return a list of Cards fo
+#
+#
+
+
+def buildCardForNote(note_id:int,note: Note, card_id: int, path: Path) -> [Card]:
+	global AnkiModels, Anki_Collections, totalCardCount, FAILED_DECKS
+	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
+	cursor = conn.cursor()
+	cursor.execute(f'SELECT * FROM cards WHERE nid = {str(note_id)}')
+	rows = cursor.fetchall()
+	for row in rows:
+		genCard = None
+	return None
+
+
 
 def buildCardsAndDeck(path: Path):
 	global AnkiNotes, AnkiModels, Anki_Collections, totalCardCount, FAILED_DECKS
@@ -390,21 +403,6 @@ def buildCardsAndDeck(path: Path):
 		bar.finish()
 
 
-def buildCssForOrd(css, ordi):
-	pagecss = cssutils.parseString(css)
-	defaultCardCss = get_rule_for_selector(pagecss, ".card")
-	ordinalCss = get_rule_for_selector(pagecss, ".card{}".format(ordi + 1))
-	try:
-		ordProp = [prop for prop in ordinalCss.style.getProperties()]
-		for dprop in defaultCardCss.style.getProperties():
-			if (dprop.name in [n.name for n in ordProp]):
-				defaultCardCss.style[dprop.name] = ordinalCss.style.getProperty(dprop.name).value
-	except:
-		pass
-	if defaultCardCss is not None:
-		return defaultCardCss.cssText
-	else:
-		return ""
 
 
 # ============================================= Import and Export Function =============================================
@@ -790,14 +788,16 @@ def main():
 	
 	# moving media files to smmedia
 	files = os.listdir(os.getcwd() + "\\out\\out_files\\elements")
-	fonts= [x for x in files if x.endswith(".ttf")]
+	fonts = [x for x in files if x.endswith(".ttf")]
 	for font in fonts:
 		try:
-			font_path = os.getcwd() + "\\out\\out_files\\elements\\"+font
-			install_font(font_path.replace("\\","/"))
+			font_path = os.getcwd() + "\\out\\out_files\\elements\\" + font
+			install_font(font_path.replace("\\", "/"))
 		except:
-			ep("Error: Failed to install the font {}. \n\tRe-run script in admin mode if it is not or manually install it Path[{}].\n".format(font,font_path))
-			
+			ep(
+				"Error: Failed to install the font {}. \n\tRe-run script in admin mode if it is not or manually install it Path[{}].\n".format(
+					font, font_path))
+	
 	with IncrementalBar("Moving Media Files DON'T CLOSE!", max=len(files)) as bar:
 		for f in files:
 			if f not in os.listdir(str(os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\")):
