@@ -1,3 +1,4 @@
+from typing import Dict
 import errno
 import os
 import re
@@ -9,17 +10,14 @@ from os.path import isfile, join
 from pathlib import Path, WindowsPath
 import json
 from collections import defaultdict
-from zipfile import ZipFile
 from progress.bar import IncrementalBar
 from magic import magic
-import Formatters
-import mustache
+from Rendering import Formatters
 from yattag import Doc
 import itertools
-import premailer
 import cssutils
 import logging
-import click
+from Utils.ErrorHandling import ep, pp, wp
 from Utils.Fonts import install_font
 from config import Config
 from Utils.HtmlUtils import \
@@ -27,7 +25,6 @@ from Utils.HtmlUtils import \
 	wrapHtmlIn,
 	strip_control_characters,
 	cleanHtml,
-	get_rule_for_selector,
 	insertHtmlAt
 )
 from Models import \
@@ -45,6 +42,7 @@ cssutils.log.setLevel(logging.CRITICAL)
 SUB_DECK_MARKER = '<sub_decks>'
 
 Anki_Collections = defaultdict(dict, ((SUB_DECK_MARKER, []),))
+Anki_Collection_IDs = []
 AnkiNotes = {}
 AnkiModels = {}
 totalCardCount = 0
@@ -122,24 +120,6 @@ get_id = get_id_func()
 # 	return (6.868 - 1.3) * ((a - min_ease) / (max_ease - min_ease)) + 1.3
 
 # ============================================= Some Util Functions =============================================
-
-# Error Print
-def ep(p) -> None:
-	"""error print"""
-	click.secho(str(">> " + p), fg="red", nl=False)
-
-
-def pp(p) -> None:
-	"""pretty print"""
-	click.secho(">> ", fg="green", nl=False)
-	click.echo(p)
-
-
-def wp(p) -> None:
-	"""warning print - yellow in color"""
-	click.secho(p, fg="yellow", nl=True)
-
-
 def resetGlobals() -> None:
 	global Anki_Collections, AnkiNotes, AnkiModels, totalCardCount, doc, tag, text, IMAGES_TEMP, ALLOW_IE_COMPAT
 	ALLOW_IE_COMPAT = True
@@ -152,6 +132,7 @@ def resetGlobals() -> None:
 
 
 def unpack_db(path: Path) -> None:
+	print(path)
 	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
 	cursor = conn.cursor()
 	
@@ -159,9 +140,13 @@ def unpack_db(path: Path) -> None:
 	for row in cursor.fetchall():
 		did, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags = row
 		buildColTree(decks)
-		buildModels(models)
-		buildNotes(path)
-		buildCardForNote(list(AnkiNotes.keys())[0], list(AnkiNotes.items())[0], 0, path)
+		#print(Anki_Collections)
+		buildNCDRecursively(Anki_Collections)
+		#prettyDeckTree(Anki_Collections)
+		exit(0)
+		#buildModels(models)
+		#buildNotes(path)
+		#buildCardForNote(list(AnkiNotes.keys())[0], list(AnkiNotes.items())[0], 0, path)
 	# buildCardsAndDeck(path)
 	print("\tExporting into xml...\n\n")
 	export(path)
@@ -179,10 +164,10 @@ def unpack_media(media_dir: Path):
 
 def unzip_file(zipfile_path: Path) -> Path:
 	"""Attempts at unzipping the file, if the apkg is corrupt or is not appear to be zip, raises an Exception"""
-	if "zip" not in magic.from_file(zipfile_path.as_posix(), mime=True):
-		raise Exception("Error: apkg does not appear to be a ZIP file...")
-	with ZipFile(zipfile_path.as_posix(), 'r') as apkg:
-		apkg.extractall(zipfile_path.stem)
+	#if "zip" not in magic.from_file(zipfile_path.as_posix(), mime=True):
+	#	raise Exception("Error: apkg does not appear to be a ZIP file...")
+	#with ZipFile(zipfile_path.as_posix(), 'r') as apkg:
+	#	apkg.extractall(zipfile_path.stem)
 	return Path(zipfile_path.stem)
 
 
@@ -281,10 +266,27 @@ def buildModels(t: str):
 		bar.finish()
 
 
+def buildNCDRecursively(d):
+	for key, value in d.items():
+		if key == SUB_DECK_MARKER:
+			if value:
+				for col in value:
+					print("ONE: ",col)
+		else:
+			if isinstance(value, dict):
+				buildNCDRecursively(value)
+			else:
+				if isinstance(value, Collection):
+					print("THREE: ",value)
+
 def buildNotes(path: Path):
 	global AnkiNotes
 	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
 	cursor = conn.cursor()
+	dids = "SELECT DISTINCT(did) FROM cards WHERE nid IN (SELECT id FROM notes)"
+	
+	# build notes with regards to their collection and pickle them
+	
 	cursor.execute("SELECT * FROM notes")
 	rows = cursor.fetchall()
 	with IncrementalBar('\tBuilding Notes', max=len(rows)) as bar:
@@ -295,6 +297,21 @@ def buildNotes(path: Path):
 			AnkiNotes[str(nid)].tags = EmptyString(tags).split(" ")
 			bar.next()
 		bar.finish()
+
+
+def buildNotesForDID(path: Path,did:str) ->Dict[str,Note]:
+	query = f'SELECT * FROM notes WHERE id IN (SELECT DISTINCT(nid) FROM cards WHERE did=\'{did}\')'
+	Notes={}
+	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
+	cursor = conn.cursor()
+	cursor.execute(query)
+	rows = cursor.fetchall()
+	for row in rows:
+		nid, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data = row
+		reqModel = AnkiModels[str(mid)]
+		Notes[str(nid)] = Note(reqModel, flds)
+		Notes[str(nid)].tags = EmptyString(tags).split(" ")
+	
 
 
 def buildCardsAndDeck(path: Path):
@@ -381,19 +398,20 @@ def export(file):
 def start_import(file: str) -> int:
 	p = unzip_file(Path(file))
 	if p is not None and type(p) is WindowsPath:
-		media = unpack_media(p)
-		out = Path("out")
-		out.mkdir(parents=True, exist_ok=True)
-		elements = Path(f"{out.as_posix()}/out_files/elements")
-		try:
-			os.makedirs(elements.as_posix())
-		except:
-			pass
-		for k in media:
+		if False:
+			media = unpack_media(p)
+			out = Path("out")
+			out.mkdir(parents=True, exist_ok=True)
+			elements = Path(f"{out.as_posix()}/out_files/elements")
 			try:
-				shutil.move(p.joinpath(k).as_posix(), elements.joinpath(media[k]).as_posix())
+				os.makedirs(elements.as_posix())
 			except:
 				pass
+			for k in media:
+				try:
+					shutil.move(p.joinpath(k).as_posix(), elements.joinpath(media[k]).as_posix())
+				except:
+					pass
 		unpack_db(p)
 		return 0
 	else:

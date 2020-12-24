@@ -1,9 +1,8 @@
 import os
 from xml.sax.saxutils import unescape
 from bs4 import BeautifulSoup
-from Formatters import reSound
-from MediaConverter import MediaConverter
-from Utils.Encoding import encode_file_b64
+from Rendering.Formatters import reSound
+from Rendering.MediaConverter import MediaConverter
 
 IMAGE_TO_ELEMENT_RATIO_W = 0.5
 ELEMENT_TO_WINDOW_RATO = (0.5, 0.5)
