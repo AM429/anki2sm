@@ -301,26 +301,21 @@ def buildNotes(path: Path):
 		bar.finish()
 
 
-def buildNotesForDID(path: Path,did:str) ->Dict[str,Note]:
+def buildNotesForDID(path: Path,did:str) -> DeckPagePool:
 	query = f'SELECT * FROM notes WHERE id IN (SELECT DISTINCT(nid) FROM cards WHERE did=\'{did}\') ORDER BY id ASC'
 	Notes = DeckPagePool(page_id=did,page_size=50000,path=path)
 	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
 	cursor = conn.cursor()
 	cursor.execute(query)
 	rows = cursor.fetchall()
-	nodes = []
+
 	for row in rows:
 		nid, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data = row
 		reqModel = AnkiModels[str(mid)]
 		temp = Note(reqModel, flds)
 		temp.tags = EmptyString(tags).split(" ")
 		Notes[str(nid)] = temp
-		nodes.append(str(nid))
-	for nid in nodes:
-		print("Testing nid of ",nid,end= "\t")
-		tst = Notes[nid]
-	
-
+	return Notes
 
 def buildCardsAndDeck(path: Path):
 	pass

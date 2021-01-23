@@ -3,7 +3,10 @@ from pathlib import Path
 from sys import getsizeof
 from datetime import datetime
 from RangeDict import OrderedRangeDict
-
+### A VERY IMPORTANT NOTE to self:
+### if you ever decide on letting the user determine how much of their computer memory to use per page
+### do add a warning that the smaller the memory size the more is the number of files written to memory going to be
+###
 
 class LRUIndex(object):
 	def __init__(self, capacity):
@@ -12,8 +15,8 @@ class LRUIndex(object):
 	
 	def get(self, key):
 		try:
-			te  = self.cache.pop(key)
-			if(isinstance(te,tuple)):
+			te = self.cache.pop(key)
+			if isinstance(te, tuple):
 				k, value = te
 				self.cache[k] = value
 				return value
@@ -65,7 +68,7 @@ class DeckPagePool(object):
 		if note_id in self._elements.keys():
 			return self._elements[note_id]
 		res = self.index.get(float(note_id)/1000)
-		if res  != -1 and res is not None:
+		if res != -1 and res is not None:
 			return res
 		else:
 			for ix in self.cached:
@@ -84,6 +87,7 @@ class DeckPagePool(object):
 		self._min_id = datetime.now()
 		self._max_id = datetime.fromtimestamp(float(0))
 		self._elements = {}
+
 
 class CacheManager(object):
 	def __float__(self):

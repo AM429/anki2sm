@@ -1,6 +1,7 @@
 import cssutils
-from typing import Dict
+from typing import Dict, Union
 
+from Caching.CacheWorker import DeckPagePool
 from Rendering import Formatters, mustache
 from Models import Card, Note
 import premailer
@@ -9,8 +10,8 @@ from Utils.HtmlUtils import get_rule_for_selector
 
 
 class CardRenderer(object):
-	def __init__(self, AnkiNotes: Dict[str, Note]):
-		self._AnkiNotes = AnkiNotes
+	def __init__(self, anki_notes: Union[Dict[str, Note],DeckPagePool]):
+		self._AnkiNotes = anki_notes
 		
 	def render(self,card):
 		reqNote = self._AnkiNotes[str(card.nid)]
@@ -20,7 +21,7 @@ class CardRenderer(object):
 			pass
 		pass
 	
-	def _renderToClozeCard(self, cid, ordi: str, reqNote) -> Card:
+	def _renderToClozeCard(self, cid, ordi: str, reqNote: Note) -> Card:
 		reqTemplate = self._getTemplateofOrd(reqNote.model.tmpls, 0)
 		mustache.filters["cloze"] = lambda txt: Formatters.cloze_q_filter(txt, str(int(ordi) + 1))
 		
@@ -37,7 +38,7 @@ class CardRenderer(object):
 		
 		return Card(cid, questionTg, answerTag)
 	
-	def _renderToClozeCard(self, cid, ordi: str, reqNote) -> Card:
+	def _renderToClozeCard(self, cid, ordi: str, reqNote: Note) -> Card:
 		reqTemplate = self._getTemplateofOrd(reqNote.model.tmpls, 0)
 		mustache.filters["cloze"] = lambda txt: Formatters.cloze_q_filter(txt, str(int(ordi) + 1))
 		
@@ -54,7 +55,7 @@ class CardRenderer(object):
 		
 		return Card(cid, questionTg, answerTag)
 	
-	def _renderToNormalCard(self, cid, ordi: str, reqNote: Note) -> Card:
+	def _renderToNormalCard(self, cid, ordi: str, reqNote : Note) -> Card:
 		reqTemplate = self._getTemplateofOrd(reqNote.model.tmpls, int(ordi))
 		
 		questionTg = "<style> " + self._buildCssForOrd(reqNote.model.css, ordi) \
@@ -68,6 +69,7 @@ class CardRenderer(object):
 		answerTag = premailer.transform(answerTag)
 		
 		return Card(cid, questionTg, answerTag)
+	
 	
 	def _buildStubbleDict(self, note: Note):
 		cflds = note.flds.split(u"")

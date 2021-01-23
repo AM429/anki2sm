@@ -21,7 +21,7 @@ class RangeDict(dict):
 			raise KeyError("Key is not Tuple")
 
 
-class OrderedRangeDict(dict):
+class OrderedRangeDict(OrderedDict):
 	minKeys = {}
 	
 	def __int__(self, other=(), **kws):
@@ -47,16 +47,15 @@ class OrderedRangeDict(dict):
 			raise KeyError("Key is not Tuple")
 	
 	def pop(self, key):
-		if(isinstance(key,tuple)):
+		if (isinstance(key, tuple)):
 			if key in self.minKeys.values():
 				self.minKeys.pop(key[0])
-				return tuple([key,super().pop(key[0])])
+				return tuple([key, super().pop(key[0])])
 		else:
 			for k in self.minKeys.values():
 				if k[0] <= key <= k[1]:
 					self.minKeys.pop(k[0])
-					return tuple([k,super().pop(k)])
-			
+					return tuple([k, super().pop(k)])
 	
 	def popitem(self, last: bool = ...):
 		v, k = super(OrderedRangeDict, self).popitem(last=last)
