@@ -306,6 +306,7 @@ def buildNotesForDID(path: Path,did:str) ->Dict[str,Note]:
 	cursor = conn.cursor()
 	cursor.execute(query)
 	rows = cursor.fetchall()
+	
 	for row in rows:
 		nid, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data = row
 		reqModel = AnkiModels[str(mid)]

@@ -4,8 +4,14 @@
 #q = qtext.split(r"")
 #fonts.install_font("C:/Users/polit/AppData/Local/Temp/smmedia/_YUMIN.TTF")
 
-import glob
-print(glob.glob("C:\\Users\\polit\\AppData\\Local\\Temp\\smmedia\\*.ttf"))
+#import glob
+from RangeDict import OrderedRangeDict
+
+#print(glob.glob("C:\\Users\\polit\\AppData\\Local\\Temp\\smmedia\\*.ttf"))
+
+
+rd = OrderedRangeDict({(1,6):"1 to 6",(10,12):"10 to 12",(69,99):"69 to 99"})
+
 
 # 
 # mustache.filters["cloze"] = lambda txt: Formatters.cloze_q_filter(txt, str(int(0) + 1))
