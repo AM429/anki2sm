@@ -12,6 +12,8 @@ import json
 from collections import defaultdict
 from progress.bar import IncrementalBar
 from magic import magic
+
+from Caching.CacheWorker import DeckPagePool
 from Rendering import Formatters
 from yattag import Doc
 import itertools
@@ -141,10 +143,10 @@ def unpack_db(path: Path) -> None:
 		did, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags = row
 		buildColTree(decks)
 		#print(Anki_Collections)
-		buildNCDRecursively(Anki_Collections)
+		buildModels(models)
+		buildNCDRecursively(Anki_Collections,path)
 		#prettyDeckTree(Anki_Collections)
 		exit(0)
-		#buildModels(models)
 		#buildNotes(path)
 		#buildCardForNote(list(AnkiNotes.keys())[0], list(AnkiNotes.items())[0], 0, path)
 	# buildCardsAndDeck(path)
@@ -266,15 +268,15 @@ def buildModels(t: str):
 		bar.finish()
 
 
-def buildNCDRecursively(d):
+def buildNCDRecursively(d,path:Path):
 	for key, value in d.items():
 		if key == SUB_DECK_MARKER:
 			if value:
 				for col in value:
-					print("ONE: ",col)
+					buildNotesForDID(path,col.did)
 		else:
 			if isinstance(value, dict):
-				buildNCDRecursively(value)
+				buildNCDRecursively(value,path)
 			else:
 				if isinstance(value, Collection):
 					print("THREE: ",value)
@@ -300,18 +302,23 @@ def buildNotes(path: Path):
 
 
 def buildNotesForDID(path: Path,did:str) ->Dict[str,Note]:
-	query = f'SELECT * FROM notes WHERE id IN (SELECT DISTINCT(nid) FROM cards WHERE did=\'{did}\')'
-	Notes={}
+	query = f'SELECT * FROM notes WHERE id IN (SELECT DISTINCT(nid) FROM cards WHERE did=\'{did}\') ORDER BY id ASC'
+	Notes = DeckPagePool(page_id=did,page_size=50000,path=path)
 	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
 	cursor = conn.cursor()
 	cursor.execute(query)
 	rows = cursor.fetchall()
-	
+	nodes = []
 	for row in rows:
 		nid, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data = row
 		reqModel = AnkiModels[str(mid)]
-		Notes[str(nid)] = Note(reqModel, flds)
-		Notes[str(nid)].tags = EmptyString(tags).split(" ")
+		temp = Note(reqModel, flds)
+		temp.tags = EmptyString(tags).split(" ")
+		Notes[str(nid)] = temp
+		nodes.append(str(nid))
+	for nid in nodes:
+		print("Testing nid of ",nid,end= "\t")
+		tst = Notes[nid]
 	
 
 
@@ -722,7 +729,7 @@ def main():
 	global AnkiNotes, totalCardCount, IMAGES_AS_COMPONENT, DEFAULT_SIDE, SIDES, ALLOW_IE_COMPAT
 	
 	mypath = str(os.getcwd() + "\\apkgs\\")
-	apkgfiles = [f for f in listdir(mypath) if isfile(join(mypath, f))]
+	apkgfiles = [f for f in listdir(mypath) if isfile(join(mypath, f)) and f.endswith(".apkg")]
 	
 	if len(apkgfiles) == 0:
 		ep("Error: No apkg in apkgs folder.")

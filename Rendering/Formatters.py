@@ -2,7 +2,7 @@ import re
 from gettext import gettext
 from html.entities import name2codepoint
 
-import mustache
+from Rendering import mustache
 
 reComment = re.compile("(?s)<!--.*?-->")
 reStyle = re.compile("(?si)<style.*?>.*?</style>")

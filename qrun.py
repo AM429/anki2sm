@@ -5,6 +5,7 @@
 #fonts.install_font("C:/Users/polit/AppData/Local/Temp/smmedia/_YUMIN.TTF")
 
 #import glob
+from Caching.CacheWorker import LRUIndex
 from RangeDict import OrderedRangeDict
 
 #print(glob.glob("C:\\Users\\polit\\AppData\\Local\\Temp\\smmedia\\*.ttf"))
@@ -13,6 +14,13 @@ from RangeDict import OrderedRangeDict
 rd = OrderedRangeDict({(1,6):"1 to 6",(10,12):"10 to 12",(69,99):"69 to 99"})
 
 
+rd[(100,101)] ="kkk"
+queu = LRUIndex(4)
+queu.set((1,6),"1 to 6")
+queu.set((10,12),"10 to 12")
+queu.set((69,99),"69 to 99")
+
+print(queu.get(11))
 # 
 # mustache.filters["cloze"] = lambda txt: Formatters.cloze_q_filter(txt, str(int(0) + 1))
 # 
