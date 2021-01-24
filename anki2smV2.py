@@ -49,7 +49,6 @@ SUB_DECK_MARKER = '<sub_decks>'
 
 Anki_Collections = defaultdict(dict, ((SUB_DECK_MARKER, []),))
 Anki_Collection_IDs = []
-AnkiNotes = {}
 AnkiModels = {}
 totalCardCount = 0
 
@@ -69,24 +68,6 @@ DATA_ACCESS = None
 
 
 # ============================================ Other Util Stuff But Deck related =================================
-
-def getDeckFromID(d, did: str):
-	res = None
-	for key, value in d.items():
-		if key == SUB_DECK_MARKER:
-			if value:
-				for col in value:
-					if col.did == did and res is None:
-						res = col
-		else:
-			if isinstance(value, dict):
-				if res is None:
-					res = getDeckFromID(value, did)
-			else:
-				if isinstance(value, Collection):
-					if value.did == did and res is None:
-						res = value
-	return res
 
 
 def get_id_func():
@@ -127,10 +108,9 @@ get_id = get_id_func()
 
 # ============================================= Some Util Functions =============================================
 def resetGlobals() -> None:
-	global Anki_Collections, AnkiNotes, AnkiModels, totalCardCount, doc, tag, text, IMAGES_TEMP, ALLOW_IE_COMPAT
+	global Anki_Collections, AnkiModels, totalCardCount, doc, tag, text, IMAGES_TEMP, ALLOW_IE_COMPAT
 	ALLOW_IE_COMPAT = True
 	Anki_Collections = defaultdict(dict, ((SUB_DECK_MARKER, []),))
-	AnkiNotes = {}
 	AnkiModels = {}
 	IMAGES_TEMP = ()
 	totalCardCount = 0
@@ -147,11 +127,10 @@ def unpack_db(path: Path) -> None:
 		did, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags = row
 		buildColTree(decks)
 		buildModels(models)
-	prettyDeckTree(Anki_Collections)
-	#buildNCDRecursively(Anki_Collections, path)
+	
+	buildNCDRecursively(Anki_Collections, path)
+	
 	print("\tExporting into xml...\n\n")
-	export(path)
-
 
 def unpack_media(media_dir: Path):
 	# if not media_dir.exists():
@@ -276,7 +255,22 @@ def buildModels(t: str):
 def buildNCDRecursively(d, path: Path):
 	global doc, tag, text
 	CachedNotes = {}
-	
+	out = Path("out")
+	out.mkdir(parents=True, exist_ok=True)
+
+	def createCardsForDid(card_rdr, subdk):
+		CachedNotes[subdk.did]: DeckPagePool = buildNotesForDID(path, subdk.did)
+		conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
+		cursor = conn.cursor()
+		cursor.execute(f'SELECT * FROM cards WHERE did = {subdk.did}')
+		rows = cursor.fetchall()
+		for row in rows:
+			cid, nid, did, ordi, mod, \
+			usn, crtype, queue, due, \
+			ivl, factor, reps, lapses, \
+			left, odue, odid, flags, data = row
+			SuperMemoElement(card_rdr.render(cid, nid, ordi))
+
 	def helper(a):
 		for key, value in d.items():
 			if key == SUB_DECK_MARKER:
@@ -285,7 +279,7 @@ def buildNCDRecursively(d, path: Path):
 						CachedNotes[col.did]: DeckPagePool = buildNotesForDID(path, col.did)
 						
 						if not isSubDeck(Anki_Collections, col.name):
-							SuperMemoTopic(col, col.name)
+							SuperMemoTopic(col, col.name, createCardsForDid,CardRenderer(CachedNotes[col.did]))
 			else:
 				if isinstance(value, dict):
 					with tag("SuperMemoElement"):
@@ -298,28 +292,21 @@ def buildNCDRecursively(d, path: Path):
 						helper(value)
 						
 						subdk: Collection = getSubDeck(Anki_Collections, key)
-						card_rdr = CardRenderer(subdk)
+						card_rdr = CardRenderer(CachedNotes[subdk.did])
 						if subdk is not None:
-							if subdk not in CachedNotes.keys():
-								CachedNotes[subdk.did]: DeckPagePool = buildNotesForDID(path, subdk.did)
-								
-								conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
-								cursor = conn.cursor()
-								cursor.execute(f'SELECT * FROM cards WHERE did = {subdk.did}')
-								rows = cursor.fetchall()
-								for row in rows:
-									cid, nid, did, ordi, mod ,\
-									usn, crtype, queue, due  ,\
-									ivl, factor, reps, lapses,\
-									left, odue, odid, flags  , data = row
-									SuperMemoElement(card_rdr.render(cid, nid, ordi))
-									print(cid)
+							if subdk.did not in CachedNotes.keys():
+								createCardsForDid(card_rdr, subdk)
 				else:
 					if isinstance(value, Collection):
 						print("THREE: ", value)
 	
-	helper(d)
-	print(CachedNotes.keys())
+	with tag('SuperMemoCollection'):
+		with tag('Count'):
+			text(str(0))
+		helper(d)
+	
+	with open(f"{out.as_posix()}/" + os.path.split(path)[-1].split(".")[0] + ".xml", "w", encoding="utf-8") as f:
+		f.write(doc.getvalue())
 
 
 def buildNotesForDID(path: Path, did: str) -> DeckPagePool:
@@ -337,20 +324,6 @@ def buildNotesForDID(path: Path, did: str) -> DeckPagePool:
 		temp.tags = EmptyString(tags).split(" ")
 		Notes[str(nid)] = temp
 	return Notes
-
-
-def export(file):
-	global Anki_Collections
-	out = Path("out")
-	out.mkdir(parents=True, exist_ok=True)
-	
-	with tag('SuperMemoCollection'):
-		with tag('Count'):
-			text(str(0))
-		SuperMemoCollection(Anki_Collections)
-	
-	with open(f"{out.as_posix()}/" + os.path.split(file)[-1].split(".")[0] + ".xml", "w", encoding="utf-8") as f:
-		f.write(doc.getvalue())
 
 
 def start_import(file: str) -> int:
@@ -377,31 +350,6 @@ def start_import(file: str) -> int:
 
 
 # =============================================SuperMemo Xml Output Functions =============================================
-
-def SuperMemoCollection(d: dict, indent=0):
-	global doc, tag, text
-	for key, value in d.items():
-		if key == SUB_DECK_MARKER:
-			if value:
-				for col in value:
-					if not isSubDeck(Anki_Collections, col.name):
-						SuperMemoTopic(col, col.name)
-		else:
-			if isinstance(value, dict):
-				with tag("SuperMemoElement"):
-					with tag('ID'):
-						text(get_id())
-					with tag('Title'):
-						text(str(key))
-					with tag('Type'):
-						text('Topic')
-					SuperMemoCollection(value, indent=indent + 1)
-					subdk = getSubDeck(Anki_Collections, key)
-					if subdk:
-						if subdk.cards is not None:
-							for c in subdk.cards:
-								SuperMemoElement(c)
-
 
 def cardHasData(card: Card) -> bool:
 	if card != None:
@@ -600,7 +548,7 @@ def SuperMemoElement(card: Card) -> None:
 						text("3")
 
 
-def SuperMemoTopic(col, ttl) -> None:
+def SuperMemoTopic(col, ttl, func, args) -> None:
 	global doc, tag, text, get_id
 	with tag("SuperMemoElement"):
 		with tag('ID'):
@@ -609,9 +557,8 @@ def SuperMemoTopic(col, ttl) -> None:
 			text(str(ttl))
 		with tag('Type'):
 			text('Topic')
-		if col.cards != None:
-			for c in col.cards:
-				SuperMemoElement(c)
+		func(args,col)
+		
 
 
 # ============================================= Configuration =============================================
@@ -674,7 +621,7 @@ def prompt_for_config():
 # ============================================= Main Function =============================================
 
 def main():
-	global AnkiNotes, totalCardCount, IMAGES_AS_COMPONENT, DEFAULT_SIDE, SIDES, ALLOW_IE_COMPAT
+	global totalCardCount, IMAGES_AS_COMPONENT, DEFAULT_SIDE, SIDES, ALLOW_IE_COMPAT
 	
 	mypath = str(os.getcwd() + "\\apkgs\\")
 	apkgfiles = [f for f in listdir(mypath) if isfile(join(mypath, f)) and f.endswith(".apkg")]
