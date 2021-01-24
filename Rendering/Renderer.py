@@ -10,16 +10,15 @@ from Utils.HtmlUtils import get_rule_for_selector
 
 
 class CardRenderer(object):
-	def __init__(self, anki_notes: Union[Dict[str, Note],DeckPagePool]):
+	def __init__(self, anki_notes: Union[Dict[str, Note], DeckPagePool]):
 		self._AnkiNotes = anki_notes
-		
-	def render(self,card):
-		reqNote = self._AnkiNotes[str(card.nid)]
+	
+	def render(self, cid ,note_id,ordi:str):
+		reqNote = self._AnkiNotes[str(note_id)]
 		if reqNote.model.type == 0:
-			pass
+			return self._renderToNormalCard(cid, ordi,reqNote)
 		elif reqNote.model.type == 1:
-			pass
-		pass
+			return self._renderToClozeCard(cid, ordi, reqNote)
 	
 	def _renderToClozeCard(self, cid, ordi: str, reqNote: Note) -> Card:
 		reqTemplate = self._getTemplateofOrd(reqNote.model.tmpls, 0)
@@ -31,6 +30,7 @@ class CardRenderer(object):
 		questionTg = "<style> " + css + " </style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
 		             + mustache.render(reqTemplate.qfmt, self._buildStubbleDict(reqNote)) + "</section>"
 		mustache.filters["cloze"] = lambda txt: Formatters.cloze_a_filter(txt, str(int(ordi) + 1))
+		
 		answerTag = "<section class='card' style=\" height:100%; width:100%; margin:0; \">" \
 		            + mustache.render(reqTemplate.afmt, self.buildStubbleDict(reqNote)) + "</section>"
 		questionTg = premailer.transform(questionTg)
@@ -38,24 +38,7 @@ class CardRenderer(object):
 		
 		return Card(cid, questionTg, answerTag)
 	
-	def _renderToClozeCard(self, cid, ordi: str, reqNote: Note) -> Card:
-		reqTemplate = self._getTemplateofOrd(reqNote.model.tmpls, 0)
-		mustache.filters["cloze"] = lambda txt: Formatters.cloze_q_filter(txt, str(int(ordi) + 1))
-		
-		css = reqNote.model.css
-		css = self._buildCssForOrd(css, ordi) if css else ""
-		
-		questionTg = "<style> " + css + " </style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-		             + mustache.render(reqTemplate.qfmt, self._buildStubbleDict(reqNote)) + "</section>"
-		mustache.filters["cloze"] = lambda txt: Formatters.cloze_a_filter(txt, str(int(ordi) + 1))
-		answerTag = "<section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-		            + mustache.render(reqTemplate.afmt, self.buildStubbleDict(reqNote)) + "</section>"
-		questionTg = premailer.transform(questionTg)
-		answerTag = premailer.transform(answerTag)
-		
-		return Card(cid, questionTg, answerTag)
-	
-	def _renderToNormalCard(self, cid, ordi: str, reqNote : Note) -> Card:
+	def _renderToNormalCard(self, cid, ordi: str, reqNote: Note) -> Card:
 		reqTemplate = self._getTemplateofOrd(reqNote.model.tmpls, int(ordi))
 		
 		questionTg = "<style> " + self._buildCssForOrd(reqNote.model.css, ordi) \
@@ -70,7 +53,6 @@ class CardRenderer(object):
 		
 		return Card(cid, questionTg, answerTag)
 	
-	
 	def _buildStubbleDict(self, note: Note):
 		cflds = note.flds.split(u"")
 		temp_dict = {}
@@ -80,13 +62,13 @@ class CardRenderer(object):
 		return temp_dict
 	
 	def _buildCssForOrd(self, css, ordi):
-		pagecss = cssutils.parseString(css)
+		pagecss = css
 		defaultCardCss = get_rule_for_selector(pagecss, ".card")
 		ordinalCss = get_rule_for_selector(pagecss, ".card{}".format(ordi + 1))
 		try:
 			ordProp = [prop for prop in ordinalCss.style.getProperties()]
 			for dprop in defaultCardCss.style.getProperties():
-				if (dprop.name in [n.name for n in ordProp]):
+				if dprop.name in [n.name for n in ordProp]:
 					defaultCardCss.style[dprop.name] = ordinalCss.style.getProperty(dprop.name).value
 		except:
 			pass

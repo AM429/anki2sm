@@ -90,5 +90,15 @@ class DeckPagePool(object):
 
 
 class CacheManager(object):
-	def __float__(self):
-		self.pages = []
+	def __init__(self, mem_size):
+		self._pages = {}
+	
+	def __setitem__(self, key, value):
+		if isinstance(key,int) and isinstance(value,DeckPagePool):
+			if key not in self._pages.keys():
+				self._pages[key] = value
+		else:
+			raise Exception("Either Key is not an integer or Value is not of DeckPool")
+	
+	def __getitem__(self, item):
+		return self._pages[item]

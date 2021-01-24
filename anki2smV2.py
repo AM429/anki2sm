@@ -10,6 +10,8 @@ from os.path import isfile, join
 from pathlib import Path, WindowsPath
 import json
 from collections import defaultdict
+from zipfile import ZipFile
+
 from progress.bar import IncrementalBar
 from magic import magic
 
@@ -19,6 +21,8 @@ from yattag import Doc
 import itertools
 import cssutils
 import logging
+
+from Rendering.Renderer import CardRenderer
 from Utils.ErrorHandling import ep, pp, wp
 from Utils.Fonts import install_font
 from config import Config
@@ -49,7 +53,6 @@ AnkiNotes = {}
 AnkiModels = {}
 totalCardCount = 0
 
-
 doc, tag, text = Doc().tagtext()
 
 IMPORT_LEARNING_DATA = False
@@ -63,6 +66,7 @@ DEFAULT_SIDE = SIDES[2]
 IMAGES_TEMP = ()
 FAILED_DECKS = []
 DATA_ACCESS = None
+
 
 # ============================================ Other Util Stuff But Deck related =================================
 
@@ -142,14 +146,9 @@ def unpack_db(path: Path) -> None:
 	for row in cursor.fetchall():
 		did, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags = row
 		buildColTree(decks)
-		#print(Anki_Collections)
 		buildModels(models)
-		buildNCDRecursively(Anki_Collections,path)
-		#prettyDeckTree(Anki_Collections)
-		exit(0)
-		#buildNotes(path)
-		#buildCardForNote(list(AnkiNotes.keys())[0], list(AnkiNotes.items())[0], 0, path)
-	# buildCardsAndDeck(path)
+	prettyDeckTree(Anki_Collections)
+	#buildNCDRecursively(Anki_Collections, path)
 	print("\tExporting into xml...\n\n")
 	export(path)
 
@@ -166,10 +165,10 @@ def unpack_media(media_dir: Path):
 
 def unzip_file(zipfile_path: Path) -> Path:
 	"""Attempts at unzipping the file, if the apkg is corrupt or is not appear to be zip, raises an Exception"""
-	#if "zip" not in magic.from_file(zipfile_path.as_posix(), mime=True):
-	#	raise Exception("Error: apkg does not appear to be a ZIP file...")
-	#with ZipFile(zipfile_path.as_posix(), 'r') as apkg:
-	#	apkg.extractall(zipfile_path.stem)
+	if "zip" not in magic.from_file(zipfile_path.as_posix(), mime=True):
+		raise Exception("Error: apkg does not appear to be a ZIP file...")
+	with ZipFile(zipfile_path.as_posix(), 'r') as apkg:
+		apkg.extractall(zipfile_path.stem)
 	return Path(zipfile_path.stem)
 
 
@@ -245,8 +244,12 @@ def buildModels(t: str):
 	flds = []
 	with IncrementalBar("\tBuilding Models", max=len(y.keys())) as bar:
 		for k in y.keys():
-			AnkiModels[str(y[k]["id"])] = Model(str(y[k]["id"]), y[k]["type"], y[k]["css"], y[k]["latexPre"],
-			                                    y[k]["latexPost"])
+			AnkiModels[str(y[k]["id"])] = Model(str(y[k]["id"]),
+			                                    y[k]["type"],
+			                                    cssutils.parseString(y[k]["css"]),
+			                                    y[k]["latexPre"],
+			                                    y[k]["latexPost"]
+			                                    )
 			
 			for fld in y[k]["flds"]:
 				flds.append((fld["name"], fld["ord"]))
@@ -259,7 +262,9 @@ def buildModels(t: str):
 					Template(tmpl["name"], tmpl["qfmt"],
 					         tmpl["did"], tmpl["bafmt"],
 					         tmpl["afmt"], tmpl["ord"],
-					         tmpl["bqfmt"]))
+					         tmpl["bqfmt"]
+					         )
+				)
 			
 			AnkiModels[str(y[k]["id"])].tmpls = tuple(templates)
 			templates = []
@@ -268,47 +273,63 @@ def buildModels(t: str):
 		bar.finish()
 
 
-def buildNCDRecursively(d,path:Path):
-	for key, value in d.items():
-		if key == SUB_DECK_MARKER:
-			if value:
-				for col in value:
-					buildNotesForDID(path,col.did)
-		else:
-			if isinstance(value, dict):
-				buildNCDRecursively(value,path)
+def buildNCDRecursively(d, path: Path):
+	global doc, tag, text
+	CachedNotes = {}
+	
+	def helper(a):
+		for key, value in d.items():
+			if key == SUB_DECK_MARKER:
+				if value:
+					for col in value:
+						CachedNotes[col.did]: DeckPagePool = buildNotesForDID(path, col.did)
+						
+						if not isSubDeck(Anki_Collections, col.name):
+							SuperMemoTopic(col, col.name)
 			else:
-				if isinstance(value, Collection):
-					print("THREE: ",value)
-
-def buildNotes(path: Path):
-	global AnkiNotes
-	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
-	cursor = conn.cursor()
-	dids = "SELECT DISTINCT(did) FROM cards WHERE nid IN (SELECT id FROM notes)"
+				if isinstance(value, dict):
+					with tag("SuperMemoElement"):
+						with tag('ID'):
+							text(get_id())
+						with tag('Title'):
+							text(str(key))
+						with tag('Type'):
+							text('Topic')
+						helper(value)
+						
+						subdk: Collection = getSubDeck(Anki_Collections, key)
+						card_rdr = CardRenderer(subdk)
+						if subdk is not None:
+							if subdk not in CachedNotes.keys():
+								CachedNotes[subdk.did]: DeckPagePool = buildNotesForDID(path, subdk.did)
+								
+								conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
+								cursor = conn.cursor()
+								cursor.execute(f'SELECT * FROM cards WHERE did = {subdk.did}')
+								rows = cursor.fetchall()
+								for row in rows:
+									cid, nid, did, ordi, mod ,\
+									usn, crtype, queue, due  ,\
+									ivl, factor, reps, lapses,\
+									left, odue, odid, flags  , data = row
+									SuperMemoElement(card_rdr.render(cid, nid, ordi))
+									print(cid)
+				else:
+					if isinstance(value, Collection):
+						print("THREE: ", value)
 	
-	# build notes with regards to their collection and pickle them
-	
-	cursor.execute("SELECT * FROM notes")
-	rows = cursor.fetchall()
-	with IncrementalBar('\tBuilding Notes', max=len(rows)) as bar:
-		for row in rows:
-			nid, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data = row
-			reqModel = AnkiModels[str(mid)]
-			AnkiNotes[str(nid)] = Note(reqModel, flds)
-			AnkiNotes[str(nid)].tags = EmptyString(tags).split(" ")
-			bar.next()
-		bar.finish()
+	helper(d)
+	print(CachedNotes.keys())
 
 
-def buildNotesForDID(path: Path,did:str) -> DeckPagePool:
+def buildNotesForDID(path: Path, did: str) -> DeckPagePool:
 	query = f'SELECT * FROM notes WHERE id IN (SELECT DISTINCT(nid) FROM cards WHERE did=\'{did}\') ORDER BY id ASC'
-	Notes = DeckPagePool(page_id=did,page_size=50000,path=path)
+	Notes = DeckPagePool(page_id=did, page_size=50000, path=path)
 	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
 	cursor = conn.cursor()
 	cursor.execute(query)
 	rows = cursor.fetchall()
-
+	
 	for row in rows:
 		nid, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data = row
 		reqModel = AnkiModels[str(mid)]
@@ -317,72 +338,6 @@ def buildNotesForDID(path: Path,did:str) -> DeckPagePool:
 		Notes[str(nid)] = temp
 	return Notes
 
-def buildCardsAndDeck(path: Path):
-	pass
-
-
-# def buildCardsAndDeck(path: Path):
-# 	global AnkiNotes, AnkiModels, Anki_Collections, totalCardCount, FAILED_DECKS
-# 	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
-# 	cursor = conn.cursor()
-# 	cursor.execute(
-# 		"SELECT * FROM cards ORDER BY factor ASC")  # min ease would at rows[0] and max index would be at rows[-1]
-# 	rows = cursor.fetchall()
-# 	with IncrementalBar("\tBuilding Cards and deck", max=len(rows)) as bar:
-# 		for row in rows:
-# 			cid, nid, did, ordi, mod, usn, crtype, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data = row
-# 			reqNote = AnkiNotes[str(nid)]
-# 			genCard = None
-#
-# 			if reqNote.model.type == 0:
-# 				reqTemplate = getTemplateofOrd(reqNote.model.tmpls, int(ordi))
-#
-# 				questionTg = "<style> " + buildCssForOrd(reqNote.model.css, ordi) \
-# 				             + "</style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-# 				             + mustache.render(reqTemplate.qfmt, buildStubbleDict(reqNote)) + "</section>"
-# 				answerTag = "<style> " + buildCssForOrd(reqNote.model.css, ordi) \
-# 				            + "</style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-# 				            + mustache.render(reqTemplate.afmt, buildStubbleDict(reqNote)) + "</section>"
-# 				questionTg = premailer.transform(questionTg)
-# 				answerTag = premailer.transform(answerTag)
-# 				genCard = Card(cid, questionTg, answerTag)
-#
-# 			elif reqNote.model.type == 1:
-# 				reqTemplate = getTemplateofOrd(reqNote.model.tmpls, 0)
-#
-# 				mustache.filters["cloze"] = lambda txt: Formatters.cloze_q_filter(txt, str(int(ordi) + 1))
-#
-# 				css = reqNote.model.css
-# 				css = buildCssForOrd(css, ordi) if css else ""
-#
-# 				questionTg = "<style> " + css + " </style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-# 				             + mustache.render(reqTemplate.qfmt, buildStubbleDict(reqNote)) + "</section>"
-#
-# 				mustache.filters["cloze"] = lambda txt: Formatters.cloze_a_filter(txt, str(int(ordi) + 1))
-#
-# 				answerTag = "<section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-# 				            + mustache.render(reqTemplate.afmt, buildStubbleDict(reqNote)) + "</section>"
-#
-# 				questionTg = premailer.transform(questionTg)
-# 				answerTag = premailer.transform(answerTag)
-# 				genCard = Card(cid, questionTg, answerTag)
-#
-# 			if genCard is not None:
-# 				reqDeck = getDeckFromID(Anki_Collections, str(did))
-# 				if reqDeck is not None:
-# 					reqDeck.cards.append(genCard)
-# 				else:
-# 					if did not in FAILED_DECKS:
-# 						FAILED_DECKS.append(did)
-# 			else:
-# 				if did not in FAILED_DECKS:
-# 					FAILED_DECKS.append(did)
-# 			totalCardCount += 1
-# 			bar.next()
-# 		bar.finish()
-
-
-# ============================================= Import and Export Function =============================================
 
 def export(file):
 	global Anki_Collections
@@ -391,7 +346,7 @@ def export(file):
 	
 	with tag('SuperMemoCollection'):
 		with tag('Count'):
-			text(str(totalCardCount))
+			text(str(0))
 		SuperMemoCollection(Anki_Collections)
 	
 	with open(f"{out.as_posix()}/" + os.path.split(file)[-1].split(".")[0] + ".xml", "w", encoding="utf-8") as f:
@@ -401,20 +356,19 @@ def export(file):
 def start_import(file: str) -> int:
 	p = unzip_file(Path(file))
 	if p is not None and type(p) is WindowsPath:
-		if False:
-			media = unpack_media(p)
-			out = Path("out")
-			out.mkdir(parents=True, exist_ok=True)
-			elements = Path(f"{out.as_posix()}/out_files/elements")
+		media = unpack_media(p)
+		out = Path("out")
+		out.mkdir(parents=True, exist_ok=True)
+		elements = Path(f"{out.as_posix()}/out_files/elements")
+		try:
+			os.makedirs(elements.as_posix())
+		except:
+			pass
+		for k in media:
 			try:
-				os.makedirs(elements.as_posix())
+				shutil.move(p.joinpath(k).as_posix(), elements.joinpath(media[k]).as_posix())
 			except:
 				pass
-			for k in media:
-				try:
-					shutil.move(p.joinpath(k).as_posix(), elements.joinpath(media[k]).as_posix())
-				except:
-					pass
 		unpack_db(p)
 		return 0
 	else:
@@ -653,7 +607,6 @@ def SuperMemoTopic(col, ttl) -> None:
 			text(get_id())
 		with tag('Title'):
 			text(str(ttl))
-		# print(str(ttl))
 		with tag('Type'):
 			text('Topic')
 		if col.cards != None:
