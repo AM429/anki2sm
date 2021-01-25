@@ -12,27 +12,35 @@ from Utils.HtmlUtils import get_rule_for_selector
 class CardRenderer(object):
 	def __init__(self, anki_notes: Union[Dict[str, Note], DeckPagePool]):
 		self._AnkiNotes = anki_notes
-	
+		self.css_F = {}
+		
 	def render(self, cid ,note_id,ordi:str):
-		reqNote = self._AnkiNotes[str(note_id)]
+		reqNote = self._AnkiNotes[note_id]
+		if reqNote is None:
+			print("BRUH")
 		if reqNote.model.type == 0:
 			return self._renderToNormalCard(cid, ordi,reqNote)
 		elif reqNote.model.type == 1:
 			return self._renderToClozeCard(cid, ordi, reqNote)
-	
+		
 	def _renderToClozeCard(self, cid, ordi: str, reqNote: Note) -> Card:
 		reqTemplate = self._getTemplateofOrd(reqNote.model.tmpls, 0)
 		mustache.filters["cloze"] = lambda txt: Formatters.cloze_q_filter(txt, str(int(ordi) + 1))
 		
-		css = reqNote.model.css
-		css = self._buildCssForOrd(css, ordi) if css else ""
+		if reqNote.model.id+str(ordi) in self.css_F.keys():
+			css = self.css_F[reqNote.model.id+str(ordi)]
+		else:
+			css = cssutils.parseString(reqNote.model.css)
+			css = self._buildCssForOrd(css, ordi) if css else ""
+			self.css_F[reqNote.model.id+str(ordi)] = css
 		
+	
 		questionTg = "<style> " + css + " </style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
 		             + mustache.render(reqTemplate.qfmt, self._buildStubbleDict(reqNote)) + "</section>"
 		mustache.filters["cloze"] = lambda txt: Formatters.cloze_a_filter(txt, str(int(ordi) + 1))
 		
 		answerTag = "<section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-		            + mustache.render(reqTemplate.afmt, self.buildStubbleDict(reqNote)) + "</section>"
+		            + mustache.render(reqTemplate.afmt, self._buildStubbleDict(reqNote)) + "</section>"
 		questionTg = premailer.transform(questionTg)
 		answerTag = premailer.transform(answerTag)
 		
@@ -41,10 +49,18 @@ class CardRenderer(object):
 	def _renderToNormalCard(self, cid, ordi: str, reqNote: Note) -> Card:
 		reqTemplate = self._getTemplateofOrd(reqNote.model.tmpls, int(ordi))
 		
-		questionTg = "<style> " + self._buildCssForOrd(reqNote.model.css, ordi) \
+		if reqNote.model.id + str(ordi) in self.css_F.keys():
+			css = self.css_F[reqNote.model.id + str(ordi)]
+		else:
+			css = cssutils.parseString(reqNote.model.css)
+			css = self._buildCssForOrd(css, ordi) if css else ""
+			self.css_F[reqNote.model.id + str(ordi)] = css
+
+		
+		questionTg = "<style> " + css \
 		             + "</style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
 		             + mustache.render(reqTemplate.qfmt, self._buildStubbleDict(reqNote)) + "</section>"
-		answerTag = "<style> " + self._buildCssForOrd(reqNote.model.css, ordi) \
+		answerTag = "<style> " + css \
 		            + "</style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
 		            + mustache.render(reqTemplate.afmt, self._buildStubbleDict(reqNote)) + "</section>"
 		

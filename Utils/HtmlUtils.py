@@ -6,7 +6,7 @@ from Rendering.MediaConverter import MediaConverter
 
 IMAGE_TO_ELEMENT_RATIO_W = 0.5
 ELEMENT_TO_WINDOW_RATO = (0.5, 0.5)
-
+GLOBAL_MEDIA_CONVERTER = MediaConverter()
 
 def wrapHtmlIn(html: str, pointOfIns: str, tagtoWrapIn: str) -> str:
 	tempSoup = BeautifulSoup(html, features="lxml")
@@ -77,6 +77,7 @@ def insertHtmlAt(html, mod, target, pos):
 
 
 def reallocateRes(tag, text, location, imgcomp=False):
+	global GLOBAL_MEDIA_CONVERTER
 	imptple = ()
 	soup = BeautifulSoup(unescape(text), features="lxml")
 	for img in soup.find_all(tag):
@@ -85,12 +86,12 @@ def reallocateRes(tag, text, location, imgcomp=False):
 				if 'src' in img.attrs.keys():
 					if not imgcomp:
 						img_urls = img['src']
-						mc = MediaConverter()
+						mc = GLOBAL_MEDIA_CONVERTER
 						img_urls = mc.convertImage(os.getcwd() + "\\out\\out_files\\elements\\"+img_urls)
 						img_urls = img_urls.split("/")[-1]
 						# IMAGES_TEMP = IMAGES_TEMP + (img_urls,)
 						img['src'] = location + img_urls
-						print(location + img_urls)
+						#print(location + img_urls)
 					# img['width'] = "50%"
 					# img["style"] = ""
 					# img['src'] = "data:image/{};base64,{}".format(

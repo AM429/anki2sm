@@ -1,9 +1,9 @@
-from typing import Dict
 import errno
 import os
 import re
 import shutil
 import sqlite3
+import threading
 from datetime import datetime
 from os import listdir
 from os.path import isfile, join
@@ -15,7 +15,7 @@ from zipfile import ZipFile
 from progress.bar import IncrementalBar
 from magic import magic
 
-from Caching.CacheWorker import DeckPagePool
+from Caching.CacheWorker import DeckPagePool, LRUCacheManager
 from Rendering import Formatters
 from yattag import Doc
 import itertools
@@ -42,6 +42,10 @@ from Models import \
 	Note,
 	EmptyString
 )
+import sys
+
+sys.setrecursionlimit(200000000)
+
 
 cssutils.log.setLevel(logging.CRITICAL)
 
@@ -144,10 +148,10 @@ def unpack_media(media_dir: Path):
 
 def unzip_file(zipfile_path: Path) -> Path:
 	"""Attempts at unzipping the file, if the apkg is corrupt or is not appear to be zip, raises an Exception"""
-	if "zip" not in magic.from_file(zipfile_path.as_posix(), mime=True):
-		raise Exception("Error: apkg does not appear to be a ZIP file...")
-	with ZipFile(zipfile_path.as_posix(), 'r') as apkg:
-		apkg.extractall(zipfile_path.stem)
+	# if "zip" not in magic.from_file(zipfile_path.as_posix(), mime=True):
+	# 	raise Exception("Error: apkg does not appear to be a ZIP file...")
+	#with ZipFile(zipfile_path.as_posix(), 'r') as apkg:
+	#	apkg.extractall(zipfile_path.stem)
 	return Path(zipfile_path.stem)
 
 
@@ -225,7 +229,7 @@ def buildModels(t: str):
 		for k in y.keys():
 			AnkiModels[str(y[k]["id"])] = Model(str(y[k]["id"]),
 			                                    y[k]["type"],
-			                                    cssutils.parseString(y[k]["css"]),
+			                                    y[k]["css"],
 			                                    y[k]["latexPre"],
 			                                    y[k]["latexPost"]
 			                                    )
@@ -254,7 +258,7 @@ def buildModels(t: str):
 
 def buildNCDRecursively(d, path: Path):
 	global doc, tag, text
-	CachedNotes = {}
+	CachedNotes = LRUCacheManager(200*1048576) #200 MB
 	out = Path("out")
 	out.mkdir(parents=True, exist_ok=True)
 
@@ -264,15 +268,20 @@ def buildNCDRecursively(d, path: Path):
 		cursor = conn.cursor()
 		cursor.execute(f'SELECT * FROM cards WHERE did = {subdk.did}')
 		rows = cursor.fetchall()
+		iiii = 0
+		print(f'Doing did = {subdk.did}')
 		for row in rows:
 			cid, nid, did, ordi, mod, \
 			usn, crtype, queue, due, \
 			ivl, factor, reps, lapses, \
 			left, odue, odid, flags, data = row
 			SuperMemoElement(card_rdr.render(cid, nid, ordi))
+			
+			iiii = iiii+1;
+			print(iiii)
 
 	def helper(a):
-		for key, value in d.items():
+		for key, value in a.items():
 			if key == SUB_DECK_MARKER:
 				if value:
 					for col in value:
@@ -322,33 +331,31 @@ def buildNotesForDID(path: Path, did: str) -> DeckPagePool:
 		reqModel = AnkiModels[str(mid)]
 		temp = Note(reqModel, flds)
 		temp.tags = EmptyString(tags).split(" ")
-		Notes[str(nid)] = temp
+		Notes[nid] = temp
 	return Notes
 
 
 def start_import(file: str) -> int:
 	p = unzip_file(Path(file))
 	if p is not None and type(p) is WindowsPath:
-		media = unpack_media(p)
-		out = Path("out")
-		out.mkdir(parents=True, exist_ok=True)
-		elements = Path(f"{out.as_posix()}/out_files/elements")
-		try:
-			os.makedirs(elements.as_posix())
-		except:
-			pass
-		for k in media:
-			try:
-				shutil.move(p.joinpath(k).as_posix(), elements.joinpath(media[k]).as_posix())
-			except:
-				pass
+		#media = unpack_media(p)
+		#out = Path("out")
+		#out.mkdir(parents=True, exist_ok=True)
+		#elements = Path(f"{out.as_posix()}/out_files/elements")
+		#try:
+		#	os.makedirs(elements.as_posix())
+		#except:
+		#	pass
+		# for k in media:
+		# 	try:
+		# 		shutil.move(p.joinpath(k).as_posix(), elements.joinpath(media[k]).as_posix())
+		# 	except:
+		# 		pass
 		unpack_db(p)
 		return 0
 	else:
 		ep("Error: Cannot convert %s" % os.path.basename(file))
 		return -1
-
-
 # =============================================SuperMemo Xml Output Functions =============================================
 
 def cardHasData(card: Card) -> bool:
@@ -696,7 +703,9 @@ def main():
 
 
 if __name__ == '__main__':
-	main()
+	threading.stack_size(200000000)
+	thread = threading.Thread(target=main)
+	thread.start()
 	if len(FAILED_DECKS) > 0:
 		wp("An Error occured while processing the following decks:")
 		for i in FAILED_DECKS:

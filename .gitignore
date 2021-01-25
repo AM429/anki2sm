@@ -117,3 +117,4 @@ qrun.py
 *.bruha
 *.out
 Test/
+out/

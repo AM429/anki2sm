@@ -7,13 +7,22 @@ import os
 class MediaConverter:
 	# anki jpg png gif  tiff svg tif jpeg mp3 ogg wav avi ogv
 	# sm   jpg png gif              jpeg mp3         avi mp4  bmp
+	def __init__(self):
+		self._alreadyConverted = {}
+	
 	def convertImage(self, filepath: str) -> str:
 		if "\\" in filepath:
 			filepath = filepath.replace("\\", "/")
 		ext = filepath.split("/")[-1].split(".")[-1]
+		filename = filepath.split("/")[-1]
+		
+		if filename in self._alreadyConverted.keys():
+			return self._alreadyConverted[filename]
+			
 		filepath = filepath.replace(ext,ext.lower())
 		file = filepath
 		ext = ext.lower()
+		
 		if ext not in ["jpg"]:
 			if ext == "png":
 				im = Image.open(filepath)
@@ -30,4 +39,7 @@ class MediaConverter:
 				rgb_im.save(filepath.replace(ext, "jpg"))
 				os.remove(file)
 				file = filepath.replace(ext, "jpg")
+				
+		self._alreadyConverted[filename] = file
+		
 		return file
