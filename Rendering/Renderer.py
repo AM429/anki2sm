@@ -14,10 +14,13 @@ class CardRenderer(object):
 		self._AnkiNotes = anki_notes
 		self.css_F = {}
 		
-	def render(self, cid ,note_id,ordi:str):
+	def mock(self, cid ,note_id,ordi:str):
 		reqNote = self._AnkiNotes[note_id]
 		if reqNote is None:
 			print("BRUH")
+			
+	def render(self, cid ,note_id,ordi:str):
+		reqNote = self._AnkiNotes[note_id]
 		if reqNote.model.type == 0:
 			return self._renderToNormalCard(cid, ordi,reqNote)
 		elif reqNote.model.type == 1:

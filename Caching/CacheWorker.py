@@ -18,10 +18,13 @@ class LRUIndex(object):
 	def get(self, key):
 		try:
 			te = self.cache.pop(key)
-			if isinstance(te, tuple):
-				k, value = te
-				self.cache[k] = value
-				return value
+			if te is not None:
+				if isinstance(te, tuple):
+					k, value = te
+					self.cache[k] = value
+					return value
+				else:
+					return -1
 			else:
 				return -1
 		except KeyError:
@@ -35,6 +38,7 @@ class LRUIndex(object):
 		except KeyError:
 			if len(self.cache) >= self.capacity:
 				self.cache.popitem(last=False)
+		
 		self.cache[key] = value
 
 
@@ -86,7 +90,7 @@ class DeckPagePool(object):
 							if res != -1 and res is not None:
 								return res[note_id]
 							else:
-								raise Exception("NOTE ID not present in pickled file")
+								raise Excebption("NOTE ID not present in pickled file")
 				else:
 					continue
 	
@@ -151,3 +155,6 @@ class LRUCacheManager(object):
 			except KeyError as E:
 				print(E)
 				return -1
+	
+	def keys(self):
+		return tuple(self._inactive_pages.keys()) + tuple(self._active_pages.keys())

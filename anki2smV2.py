@@ -268,7 +268,6 @@ def buildNCDRecursively(d, path: Path):
 		cursor = conn.cursor()
 		cursor.execute(f'SELECT * FROM cards WHERE did = {subdk.did}')
 		rows = cursor.fetchall()
-		iiii = 0
 		print(f'Doing did = {subdk.did}')
 		for row in rows:
 			cid, nid, did, ordi, mod, \
@@ -276,9 +275,7 @@ def buildNCDRecursively(d, path: Path):
 			ivl, factor, reps, lapses, \
 			left, odue, odid, flags, data = row
 			SuperMemoElement(card_rdr.render(cid, nid, ordi))
-			
-			iiii = iiii+1;
-			print(iiii)
+			#card_rdr.mock(cid, nid, ordi)
 
 	def helper(a):
 		for key, value in a.items():
