@@ -1,32 +1,37 @@
-from concurrent.futures.thread import ThreadPoolExecutor
-import errno
 import os
 import re
+import time
+import json
+import errno
 import shutil
 import sqlite3
-import threading
-from datetime import datetime
-from os import listdir
-from os.path import isfile, join
-from pathlib import Path, WindowsPath
-import json
-from collections import defaultdict
-
-from progress.bar import IncrementalBar
-from magic import magic
-
-from Caching.CacheWorker import DeckPagePool, LRUCacheManager
-from Rendering import Formatters
-from yattag import Doc
-import itertools
-import cssutils
 import logging
-
-from Rendering.Renderer import CardRenderer
-from Utils.ErrorHandling import ep, pp, wp
-from Utils.FileUtils import move_media_to_smmedia, moveExtractedFiles, unpack_media, unzip_file
-from Utils.Fonts import install_font
+import cssutils
+import threading
+import itertools
+from os import listdir
+from yattag import Doc
+from magic import magic
 from config import Config
+from os.path import isfile,join
+from Rendering import Formatters
+import concurrent.futures as furs
+from collections import defaultdict
+from Utils.Fonts import install_font
+from pathlib import Path, WindowsPath
+from progress.bar import IncrementalBar
+from datetime import datetime, timedelta
+from Utils.ErrorHandling import ep, pp, wp
+from Rendering.Renderer import CardRenderer
+from concurrent.futures.thread import ThreadPoolExecutor
+from Caching.LRUCaching import DeckPagePool, LRUCacheManager
+from Utils.FileUtils import \
+	(
+	  move_media_to_smmedia,
+	  moveExtractedFiles,
+	  unpack_media,
+	  unzip_file
+)
 from Utils.HtmlUtils import \
 	(
 	wrapHtmlIn,
@@ -121,7 +126,6 @@ def resetGlobals() -> None:
 
 
 def unpack_db(path: Path) -> None:
-	print(path)
 	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
 	cursor = conn.cursor()
 	
@@ -305,13 +309,28 @@ def buildNotesForDID(path: Path, did: str) -> DeckPagePool:
 	cursor.execute(query)
 	rows = cursor.fetchall()
 	
-	for row in rows:
-		nid, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data = row
-		reqModel = AnkiModels[str(mid)]
-		temp = Note(reqModel, flds)
-		temp.tags = EmptyString(tags).split(" ")
-		Notes[nid] = temp
+	completed = []
+	with ThreadPoolExecutor() as executor:
+		futures = []
+		for row in rows:
+			nid, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data = row
+			futures.append(executor.submit(build_model_n, nid=nid,flds=flds,mid=mid,tags=tags))
+		
+		for future in furs.as_completed(futures):
+			completed.append(future.result())
+			
+	completed.sort(key=lambda x: x[0])
+	
+	for f in completed:
+		Notes[f[0]] = f[1]
 	return Notes
+
+
+def build_model_n(nid,flds, mid, tags):
+	reqModel = AnkiModels[str(mid)]
+	temp = Note(reqModel, flds)
+	temp.tags = EmptyString(tags).split(" ")
+	return tuple([nid,temp])
 
 
 def start_import(file: str) -> int:
@@ -325,11 +344,9 @@ def start_import(file: str) -> int:
 			os.makedirs(elements.as_posix())
 		except:
 			pass
-		
+
 		with ThreadPoolExecutor() as executor:
-			futures = []
-			for k in media:
-				futures.append(executor.submit(moveExtractedFiles, elements=elements, k=k, media=media, p=p))
+			map(lambda k: executor.submit(moveExtractedFiles, elements=elements, k=k, media=media, p=p), media)
 		unpack_db(p)
 		return 0
 	else:
@@ -637,7 +654,13 @@ def main():
 		elif tempInp.casefold() != "Y".casefold():
 			print("Wrong input provided, IE restrictions are lifted")
 		
+		start_time = time.time()
+		
 		start_import(mypath + apkgfiles[i])
+		
+		elapsed_time_secs = time.time() - start_time
+		print(f'Conversion of Deck<{apkgfiles[i]}>: {str(timedelta(seconds=round(elapsed_time_secs)))}secs')
+		
 		resetGlobals()
 		try:
 			shutil.rmtree(os.path.splitext(apkgfiles[i])[0])
@@ -666,9 +689,7 @@ def main():
 	
 	print("Moving Media Files DON'T CLOSE!")
 	with ThreadPoolExecutor() as executor:
-		futures = []
-		for f in files:
-			futures.append(executor.submit(move_media_to_smmedia, f=f))
+		map(lambda x: executor.submit(move_media_to_smmedia, f=x), files)
 	
 	# deleting temp media files
 	try:
@@ -681,10 +702,11 @@ def main():
 if __name__ == '__main__':
 	threading.stack_size(200000000)
 	thread = threading.Thread(target=main)
+	
 	thread.start()
 	
 	if len(FAILED_DECKS) > 0:
-		wp("An Error occured while processing the following decks:")
+		wp("An Error occurred while processing the following decks:")
 		for i in FAILED_DECKS:
 			print(i)
 		wp(

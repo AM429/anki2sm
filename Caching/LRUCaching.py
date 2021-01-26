@@ -56,9 +56,9 @@ class DeckPagePool(object):
 		self._max_id = 00
 	
 	def __setitem__(self, note_id, note):
-		print(f'Size of Page{str(self.page_id)}  = '
-		      f'{str((getsizeof(self._elements) + getsizeof(self.index)) / 1048576)}, '
-		      f'{str(getsizeof(self._elements) > self._page_size / (self.no_index_pages + 1))}')
+		# print(f'Size of Page{str(self.page_id)}  = '
+		#       f'{str((getsizeof(self._elements) + getsizeof(self.index)) / 1048576)}, '
+		#       f'{str(getsizeof(self._elements) > self._page_size / (self.no_index_pages + 1))}')
 		
 		if getsizeof(self._elements) > self._page_size / (self.no_index_pages + 1):
 			self.serialize()
@@ -90,7 +90,7 @@ class DeckPagePool(object):
 							if res != -1 and res is not None:
 								return res[note_id]
 							else:
-								raise Excebption("NOTE ID not present in pickled file")
+								raise Exception("NOTE ID not present in pickled file")
 				else:
 					continue
 	
@@ -125,7 +125,7 @@ class LRUCacheManager(object):
 		)
 	
 	def __setitem__(self, key: str, value: DeckPagePool):
-		print(f'Size of CACHE Manager Pages: {str(self._size_of_ac_pages() / 1048576)}')
+		#print(f'Size of CACHE Manager Pages: {str(self._size_of_ac_pages() / 1048576)}')
 		if key not in self._active_pages.keys():
 			try:
 				self._active_pages.pop(key)
@@ -153,7 +153,7 @@ class LRUCacheManager(object):
 					self.__setitem__(k, v)
 					return v
 			except KeyError as E:
-				print(E)
+				#print(E)
 				return -1
 	
 	def keys(self):

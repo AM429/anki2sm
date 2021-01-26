@@ -5,7 +5,7 @@
 #fonts.install_font("C:/Users/polit/AppData/Local/Temp/smmedia/_YUMIN.TTF")
 
 #import glob
-from Caching.CacheWorker import LRUIndex
+from Caching.LRUCaching import LRUIndex
 from RangeDict import OrderedRangeDict
 
 #print(glob.glob("C:\\Users\\polit\\AppData\\Local\\Temp\\smmedia\\*.ttf"))

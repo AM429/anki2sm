@@ -116,5 +116,6 @@ qrun.py
 *.bruh
 *.bruha
 *.out
-Test/
-out/
+Test/*
+out/*
+apkgs/*
