@@ -11,7 +11,6 @@ from os.path import isfile, join
 from pathlib import Path, WindowsPath
 import json
 from collections import defaultdict
-from zipfile import ZipFile
 
 from progress.bar import IncrementalBar
 from magic import magic
@@ -25,6 +24,7 @@ import logging
 
 from Rendering.Renderer import CardRenderer
 from Utils.ErrorHandling import ep, pp, wp
+from Utils.FileUtils import move_media_to_smmedia, moveExtractedFiles, unpack_media, unzip_file
 from Utils.Fonts import install_font
 from config import Config
 from Utils.HtmlUtils import \
@@ -46,8 +46,6 @@ from Models import \
 import sys
 
 sys.setrecursionlimit(200000000)
-
-
 cssutils.log.setLevel(logging.CRITICAL)
 
 SUB_DECK_MARKER = '<sub_decks>'
@@ -128,6 +126,7 @@ def unpack_db(path: Path) -> None:
 	cursor = conn.cursor()
 	
 	cursor.execute("SELECT * FROM col")
+	
 	for row in cursor.fetchall():
 		did, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags = row
 		buildColTree(decks)
@@ -136,24 +135,6 @@ def unpack_db(path: Path) -> None:
 	buildNCDRecursively(Anki_Collections, path)
 	
 	print("\tExporting into xml...\n\n")
-
-def unpack_media(media_dir: Path):
-	# if not media_dir.exists():
-	#	raise FileNotFoundError
-	
-	with open(media_dir.joinpath("media").as_posix(), "r") as f:
-		m = json.loads(f.read())
-		print(f'\tAmount of media files: {len(m)}\n')
-	return m
-
-
-def unzip_file(zipfile_path: Path) -> Path:
-	"""Attempts at unzipping the file, if the apkg is corrupt or is not appear to be zip, raises an Exception"""
-	# if "zip" not in magic.from_file(zipfile_path.as_posix(), mime=True):
-	# 	raise Exception("Error: apkg does not appear to be a ZIP file...")
-	#with ZipFile(zipfile_path.as_posix(), 'r') as apkg:
-	#	apkg.extractall(zipfile_path.stem)
-	return Path(zipfile_path.stem)
 
 
 # ============================================= Deck Builder Functions =============================================
@@ -332,9 +313,6 @@ def buildNotesForDID(path: Path, did: str) -> DeckPagePool:
 		Notes[nid] = temp
 	return Notes
 
-def moveFiles(elements, k, media, p):
-	shutil.move(p.joinpath(k).as_posix(), elements.joinpath(media[k]).as_posix())
-
 
 def start_import(file: str) -> int:
 	p = unzip_file(Path(file))
@@ -351,7 +329,7 @@ def start_import(file: str) -> int:
 		with ThreadPoolExecutor() as executor:
 			futures = []
 			for k in media:
-				futures.append(executor.submit(moveFiles, elements=elements,k=k,media=media,p=p))
+				futures.append(executor.submit(moveExtractedFiles, elements=elements, k=k, media=media, p=p))
 		unpack_db(p)
 		return 0
 	else:
@@ -686,16 +664,11 @@ def main():
 				"Error: Failed to install the font {}. \n\tRe-run script in admin mode if it is not or manually install it Path[{}].\n".format(
 					font, font_path))
 	
-	with IncrementalBar("Moving Media Files DON'T CLOSE!", max=len(files)) as bar:
+	print("Moving Media Files DON'T CLOSE!")
+	with ThreadPoolExecutor() as executor:
+		futures = []
 		for f in files:
-			if f not in os.listdir(str(os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\")):
-				try:
-					shutil.move(os.getcwd() + "\\out\\out_files\\elements\\" + f,
-					            str(os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\"))
-				except:
-					pass
-			bar.next()
-		bar.finish()
+			futures.append(executor.submit(move_media_to_smmedia, f=f))
 	
 	# deleting temp media files
 	try:
@@ -709,6 +682,7 @@ if __name__ == '__main__':
 	threading.stack_size(200000000)
 	thread = threading.Thread(target=main)
 	thread.start()
+	
 	if len(FAILED_DECKS) > 0:
 		wp("An Error occured while processing the following decks:")
 		for i in FAILED_DECKS:
