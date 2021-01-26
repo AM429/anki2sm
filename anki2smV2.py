@@ -1,3 +1,4 @@
+from concurrent.futures.thread import ThreadPoolExecutor
 import errno
 import os
 import re
@@ -331,28 +332,33 @@ def buildNotesForDID(path: Path, did: str) -> DeckPagePool:
 		Notes[nid] = temp
 	return Notes
 
+def moveFiles(elements, k, media, p):
+	shutil.move(p.joinpath(k).as_posix(), elements.joinpath(media[k]).as_posix())
+
 
 def start_import(file: str) -> int:
 	p = unzip_file(Path(file))
 	if p is not None and type(p) is WindowsPath:
-		#media = unpack_media(p)
-		#out = Path("out")
-		#out.mkdir(parents=True, exist_ok=True)
-		#elements = Path(f"{out.as_posix()}/out_files/elements")
-		#try:
-		#	os.makedirs(elements.as_posix())
-		#except:
-		#	pass
-		# for k in media:
-		# 	try:
-		# 		shutil.move(p.joinpath(k).as_posix(), elements.joinpath(media[k]).as_posix())
-		# 	except:
-		# 		pass
+		media = unpack_media(p)
+		out = Path("out")
+		out.mkdir(parents=True, exist_ok=True)
+		elements = Path(f"{out.as_posix()}/out_files/elements")
+		try:
+			os.makedirs(elements.as_posix())
+		except:
+			pass
+		
+		with ThreadPoolExecutor() as executor:
+			futures = []
+			for k in media:
+				futures.append(executor.submit(moveFiles, elements=elements,k=k,media=media,p=p))
 		unpack_db(p)
 		return 0
 	else:
 		ep("Error: Cannot convert %s" % os.path.basename(file))
 		return -1
+
+
 # =============================================SuperMemo Xml Output Functions =============================================
 
 def cardHasData(card: Card) -> bool:
