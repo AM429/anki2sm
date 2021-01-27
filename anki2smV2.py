@@ -23,6 +23,7 @@ from progress.bar import IncrementalBar
 from datetime import datetime, timedelta
 from Utils.ErrorHandling import ep, pp, wp
 from Rendering.Renderer import CardRenderer
+from Rendering.MediaConverter import __CONVERTER_PROCESS,Q1
 from concurrent.futures.thread import ThreadPoolExecutor
 from Caching.LRUCaching import DeckPagePool, LRUCacheManager
 from Utils.FileUtils import \
@@ -46,7 +47,7 @@ from Models import \
 	Card,
 	Collection,
 	Note,
-	EmptyString
+	EmptyString, SQLNote
 )
 import sys
 
@@ -243,14 +244,14 @@ def buildModels(t: str):
 
 
 def buildNCDRecursively(d, path: Path):
-	global doc, tag, text
+	global doc, tag, text, AnkiModels
 	CachedNotes = LRUCacheManager(200*1048576) #200 MB
 	out = Path("out")
 	out.mkdir(parents=True, exist_ok=True)
 
 	def createCardsForDid(card_rdr, subdk):
 		CachedNotes[subdk.did]: DeckPagePool = buildNotesForDID(path, subdk.did)
-		conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
+		conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix(),check_same_thread=False)
 		cursor = conn.cursor()
 		cursor.execute(f'SELECT * FROM cards WHERE did = {subdk.did}')
 		rows = cursor.fetchall()
@@ -262,16 +263,30 @@ def buildNCDRecursively(d, path: Path):
 			left, odue, odid, flags, data = row
 			SuperMemoElement(card_rdr.render(cid, nid, ordi))
 			#card_rdr.mock(cid, nid, ordi)
+		
+	def createCardsForDid2(card_rdr, subdk):
+		conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix(),check_same_thread=False)
+		cursor = conn.cursor()
+		cursor.execute(f'SELECT * FROM cards WHERE did = {subdk.did}')
+		rows = cursor.fetchall()
+		print(f'Doing did = {subdk.did}')
+		for row in rows:
+			cid, nid, did, ordi, mod, \
+			usn, crtype, queue, due, \
+			ivl, factor, reps, lapses, \
+			left, odue, odid, flags, data = row
+			SuperMemoElement(card_rdr.render2(SQLNote(path,did,nid,AnkiModels),cid, ordi))
 
 	def helper(a):
 		for key, value in a.items():
 			if key == SUB_DECK_MARKER:
 				if value:
 					for col in value:
-						CachedNotes[col.did]: DeckPagePool = buildNotesForDID(path, col.did)
+						#CachedNotes[col.did]: DeckPagePool = buildNotesForDID(path, col.did)
 						
 						if not isSubDeck(Anki_Collections, col.name):
-							SuperMemoTopic(col, col.name, createCardsForDid,CardRenderer(CachedNotes[col.did]))
+							#SuperMemoTopic(col, col.name, createCardsForDid,CardRenderer(CachedNotes[col.did]))
+							SuperMemoTopic(col, col.name, createCardsForDid2,CardRenderer(None))
 			else:
 				if isinstance(value, dict):
 					with tag("SuperMemoElement"):
@@ -284,10 +299,10 @@ def buildNCDRecursively(d, path: Path):
 						helper(value)
 						
 						subdk: Collection = getSubDeck(Anki_Collections, key)
-						card_rdr = CardRenderer(CachedNotes[subdk.did])
+						#card_rdr = CardRenderer(CachedNotes[subdk.did])
+						card_rdr = CardRenderer(None)
 						if subdk is not None:
-							if subdk.did not in CachedNotes.keys():
-								createCardsForDid(card_rdr, subdk)
+							createCardsForDid2(card_rdr, subdk)
 				else:
 					if isinstance(value, Collection):
 						print("THREE: ", value)
@@ -346,7 +361,10 @@ def start_import(file: str) -> int:
 			pass
 
 		with ThreadPoolExecutor() as executor:
-			map(lambda k: executor.submit(moveExtractedFiles, elements=elements, k=k, media=media, p=p), media)
+			futures = []
+			for k in media:
+				futures.append(executor.submit(moveExtractedFiles, elements=elements, k=k, media=media, p=p))
+
 		unpack_db(p)
 		return 0
 	else:
@@ -686,23 +704,29 @@ def main():
 			ep(
 				"Error: Failed to install the font {}. \n\tRe-run script in admin mode if it is not or manually install it Path[{}].\n".format(
 					font, font_path))
+
+	if __CONVERTER_PROCESS is not None:
+		Q1.put(("EXIT" , "EXIT"))
 	
 	print("Moving Media Files DON'T CLOSE!")
-	with ThreadPoolExecutor() as executor:
-		map(lambda x: executor.submit(move_media_to_smmedia, f=x), files)
+	# with ThreadPoolExecutor() as executor:
+	# 	futures = []
+	# 	for f in files:
+	# 		futures.append(executor.submit(move_media_to_smmedia, f=f))
 	
 	# deleting temp media files
-	try:
-		shutil.rmtree(os.getcwd() + "\\out\\out_files\\elements")
-		shutil.rmtree(os.getcwd() + "\\out\\out_files")
-	except OSError as e:
-		ep("Error: %s - %s." % (e.filename, e.strerror))
+	# try:
+	# 	shutil.rmtree(os.getcwd() + "\\out\\out_files\\elements")
+	# 	shutil.rmtree(os.getcwd() + "\\out\\out_files")
+	# except OSError as e:
+	# 	ep("Error: %s - %s." % (e.filename, e.strerror))
 
 
 if __name__ == '__main__':
 	threading.stack_size(200000000)
 	thread = threading.Thread(target=main)
-	
+	if not __CONVERTER_PROCESS.is_alive():
+		__CONVERTER_PROCESS.start()
 	thread.start()
 	
 	if len(FAILED_DECKS) > 0:

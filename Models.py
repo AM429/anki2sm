@@ -1,3 +1,5 @@
+import sqlite3
+
 
 def EmptyString(s: str) -> str:
 	if s is None or len(s) == 0:
@@ -81,6 +83,8 @@ class Collection:
 			str(e) for e in self.cards) + "]}>"
 
 
+
+
 class Note:
 	def __init__(self, model, flds):
 		self.model = model
@@ -92,3 +96,16 @@ class Note:
 	
 	def __repr__(self):
 		return "<Note{model:" + str(self.model) + ",Fields: " + str(self.flds) + "}>"
+
+
+class SQLNote(Note):
+	def __init__(self, path, did,nid,models):
+		query = f'SELECT id,mid,tags,flds from notes WHERE id={nid}'
+		conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
+		cursor = conn.cursor()
+		cursor.execute(query)
+		nid, mid, tags, flds = cursor.fetchone()
+		
+		self.model = models[str(mid)]
+		self.flds = flds
+		self.tags = EmptyString(tags).split(" ")

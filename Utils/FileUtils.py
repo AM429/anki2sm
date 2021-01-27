@@ -32,6 +32,6 @@ def unzip_file(zipfile_path: Path) -> Path:
 	"""Attempts at unzipping the file, if the apkg is corrupt or is not appear to be zip, raises an Exception"""
 	# if "zip" not in magic.from_file(zipfile_path.as_posix(), mime=True):
 	# 	raise Exception("Error: apkg does not appear to be a ZIP file...")
-	with ZipFile(zipfile_path.as_posix(), 'r') as apkg:
-		apkg.extractall(zipfile_path.stem)
+	# with ZipFile(zipfile_path.as_posix(), 'r') as apkg:
+	# 	apkg.extractall(zipfile_path.stem)
 	return Path(zipfile_path.stem)

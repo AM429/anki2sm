@@ -15,6 +15,9 @@ class CardRenderer(object):
 	def __init__(self, anki_notes: Union[Dict[str, Note], DeckPagePool]):
 		self.__AnkiNotes = anki_notes
 	
+	def __int__(self):
+		pass
+	
 	def mock(self, cid, note_id, ordi: str):
 		reqNote = self.__AnkiNotes[note_id]
 		if reqNote is None:
@@ -22,6 +25,12 @@ class CardRenderer(object):
 	
 	def render(self, cid, note_id, ordi: str):
 		reqNote = self.__AnkiNotes[note_id]
+		if reqNote.model.type == 0:
+			return self.__renderToNormalCard(cid, ordi, reqNote)
+		elif reqNote.model.type == 1:
+			return self.__renderToClozeCard(cid, ordi, reqNote)
+	
+	def render2(self,reqNote,cid, ordi: str):
 		if reqNote.model.type == 0:
 			return self.__renderToNormalCard(cid, ordi, reqNote)
 		elif reqNote.model.type == 1:

@@ -3,25 +3,36 @@
 #<img src="paste-35699768164355.jpg"><i>Other:</i><div><div><i>-<b>&nbsp;smoking</b></i></div><div><i>- starting&nbsp;<b>sexual</b>&nbsp;intercourse at a&nbsp;<b>young</b>&nbsp;age</i></div><div><i>-<b>&nbsp;immunodeficiency</b>&nbsp;(eg.&nbsp;HIV infection)</i></div></div>"""
 #q = qtext.split(r"")
 #fonts.install_font("C:/Users/polit/AppData/Local/Temp/smmedia/_YUMIN.TTF")
-
-#import glob
-from Caching.LRUCaching import LRUIndex
-from RangeDict import OrderedRangeDict
-
 #print(glob.glob("C:\\Users\\polit\\AppData\\Local\\Temp\\smmedia\\*.ttf"))
 
 
-rd = OrderedRangeDict({(1,6):"1 to 6",(10,12):"10 to 12",(69,99):"69 to 99"})
 
 
-rd[(100,101)] ="kkk"
-queu = LRUIndex(4)
-queu.set((1,6),"1 to 6")
-queu.set((10,12),"10 to 12")
-queu.set((69,99),"69 to 99")
+from multiprocessing import Process, Queue
+import time
+from multiprocessing.dummy import freeze_support
 
-print(queu.get(11))
-# 
+
+def process1(in_queue):
+    # Receives data, modifies it and sends it back
+    while True:
+        data = in_queue.get() # Receive data
+        if data is None:
+            time.sleep(0.2)
+        print(data * 2)
+
+if __name__ == '__main__':
+    q1 = Queue()
+    process_1 = Process(target=process1, args=(q1,))
+    process_1.start()
+    
+    for i in range(0,10000):
+        q1.put(i)
+        time.sleep(0.4)
+        
+    process_1.join()
+
+#
 # mustache.filters["cloze"] = lambda txt: Formatters.cloze_q_filter(txt, str(int(0) + 1))
 # 
 # mytemplate = "{{#Text}}{{cloze:Text}}{{/Text}}"
