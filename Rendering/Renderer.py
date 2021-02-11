@@ -9,6 +9,7 @@ import premailer
 from Utils.HtmlUtils import get_rule_for_selector
 
 _RENDERED_CSS = {}
+_CSS_STRING = u"<style>%s</style><section class='card' style=\" height:100%%; width:100%%; margin:0; \"> %s </section>"
 
 
 class CardRenderer(object):
@@ -30,7 +31,7 @@ class CardRenderer(object):
 		elif reqNote.model.type == 1:
 			return self.__renderToClozeCard(cid, ordi, reqNote)
 	
-	def render2(self,reqNote,cid, ordi: str):
+	def render_from_note(self, reqNote, cid, ordi: str):
 		if reqNote.model.type == 0:
 			return self.__renderToNormalCard(cid, ordi, reqNote)
 		elif reqNote.model.type == 1:
@@ -47,12 +48,11 @@ class CardRenderer(object):
 			css = self.__buildCssForOrd(css, ordi) if css else ""
 			_RENDERED_CSS[reqNote.model.id + str(ordi)] = css
 		
-		questionTg = "<style> " + css + " </style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-		             + mustache.render(reqTemplate.qfmt, self.__buildStubbleDict(reqNote)) + "</section>"
+		questionTg = _CSS_STRING % (css, mustache.render(reqTemplate.qfmt, self.__buildStubbleDict(reqNote)))
 		mustache.filters["cloze"] = lambda txt: Formatters.cloze_a_filter(txt, str(int(ordi) + 1))
 		
-		answerTag = "<section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-		            + mustache.render(reqTemplate.afmt, self.__buildStubbleDict(reqNote)) + "</section>"
+		answerTag = _CSS_STRING % (" ", mustache.render(reqTemplate.afmt, self.__buildStubbleDict(reqNote)))
+		
 		questionTg = premailer.transform(questionTg)
 		answerTag = premailer.transform(answerTag)
 		
@@ -68,12 +68,8 @@ class CardRenderer(object):
 			css = self.__buildCssForOrd(css, ordi) if css else ""
 			_RENDERED_CSS[reqNote.model.id + str(ordi)] = css
 		
-		questionTg = "<style> " + css \
-		             + "</style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-		             + mustache.render(reqTemplate.qfmt, self.__buildStubbleDict(reqNote)) + "</section>"
-		answerTag = "<style> " + css \
-		            + "</style><section class='card' style=\" height:100%; width:100%; margin:0; \">" \
-		            + mustache.render(reqTemplate.afmt, self.__buildStubbleDict(reqNote)) + "</section>"
+		questionTg = _CSS_STRING % (css, mustache.render(reqTemplate.qfmt, self.__buildStubbleDict(reqNote)))
+		answerTag = _CSS_STRING % (css, mustache.render(reqTemplate.afmt, self.__buildStubbleDict(reqNote)))
 		
 		questionTg = premailer.transform(questionTg)
 		answerTag = premailer.transform(answerTag)

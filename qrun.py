@@ -4,37 +4,15 @@
 #q = qtext.split(r"")
 #fonts.install_font("C:/Users/polit/AppData/Local/Temp/smmedia/_YUMIN.TTF")
 #print(glob.glob("C:\\Users\\polit\\AppData\\Local\\Temp\\smmedia\\*.ttf"))
+from pathlib import Path
+
+from Rendering.Renderer import _CSS_STRING
+from Utils.FileUtils import check_if_unzipped
 
 
+print(check_if_unzipped(Path("Test")))
 
-
-from multiprocessing import Process, Queue
-import time
-from multiprocessing.dummy import freeze_support
-
-
-def process1(in_queue):
-    # Receives data, modifies it and sends it back
-    while True:
-        data = in_queue.get() # Receive data
-        if data is None:
-            time.sleep(0.2)
-        print(data * 2)
-
-if __name__ == '__main__':
-    q1 = Queue()
-    process_1 = Process(target=process1, args=(q1,))
-    process_1.start()
-    
-    for i in range(0,10000):
-        q1.put(i)
-        time.sleep(0.4)
-        
-    process_1.join()
-
-#
 # mustache.filters["cloze"] = lambda txt: Formatters.cloze_q_filter(txt, str(int(0) + 1))
-# 
 # mytemplate = "{{#Text}}{{cloze:Text}}{{/Text}}"
 # 
 # print(mustache.render(mytemplate,{"Text": q[0]}))

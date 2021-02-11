@@ -11,7 +11,7 @@ reTag = re.compile("(?s)<.*?>")
 reEnts = re.compile(r"&#?\w+;")
 reMedia = re.compile("(?i)<img[^>]+src=[\"']?([^\"'>]+)[\"']?[^>]*>")
 reSound = re.compile(r"\[sound:[^]]+\]")
-
+reSound2 = re.compile(r"(?:\[sound:)([^])(?:]+)(?:\])")
 
 def entsToTxt(html: str) -> str:
 	# entitydefs defines nbsp as \xa0 instead of a standard space, so we
@@ -139,10 +139,11 @@ def hint_filter(txt: str, args, context, tag: str, fullname) -> str:
 	return """<a class=hint href="#"onclick="this.style.display='none';document.getElementById('%s').style.display='block';return false;">
     %s</a><div id="%s" class=hint style="display: none">%s</div>
     """ % (
-		domid,
-		gettext("Show %s") % tag,
-		domid, txt,
-	)
+			domid,
+			gettext("Show %s") % tag,
+			domid,
+			txt,
+		  )
 
 
 def captured_sound(groups: re.Match):

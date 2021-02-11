@@ -1,5 +1,5 @@
 import os
-import re
+import sys
 import time
 import json
 import errno
@@ -13,7 +13,7 @@ from os import listdir
 from yattag import Doc
 from magic import magic
 from config import Config
-from os.path import isfile,join
+from os.path import isfile, join
 from Rendering import Formatters
 import concurrent.futures as furs
 from collections import defaultdict
@@ -23,15 +23,16 @@ from progress.bar import IncrementalBar
 from datetime import datetime, timedelta
 from Utils.ErrorHandling import ep, pp, wp
 from Rendering.Renderer import CardRenderer
-from Rendering.MediaConverter import __CONVERTER_PROCESS,Q1
+from Rendering.MediaConverter import __CONVERTER_PROCESS, Q1
 from concurrent.futures.thread import ThreadPoolExecutor
 from Caching.LRUCaching import DeckPagePool, LRUCacheManager
 from Utils.FileUtils import \
 	(
-	  move_media_to_smmedia,
-	  moveExtractedFiles,
-	  unpack_media,
-	  unzip_file
+	move_media_to_smmedia,
+	moveExtractedFiles,
+	check_if_unzipped,
+	unpack_media,
+	unzip_file,
 )
 from Utils.HtmlUtils import \
 	(
@@ -49,14 +50,12 @@ from Models import \
 	Note,
 	EmptyString, SQLNote
 )
-import sys
 
 sys.setrecursionlimit(200000000)
 cssutils.log.setLevel(logging.CRITICAL)
 
 SUB_DECK_MARKER = '<sub_decks>'
 
-Anki_Collections = defaultdict(dict, ((SUB_DECK_MARKER, []),))
 Anki_Collection_IDs = []
 AnkiModels = {}
 totalCardCount = 0
@@ -66,6 +65,8 @@ doc, tag, text = Doc().tagtext()
 IMPORT_LEARNING_DATA = False
 IMAGES_AS_COMPONENT = False
 ALLOW_IE_COMPAT = True
+
+SMMEDIA = os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\{}"
 
 SIDES = ("q", "a", "anki")
 
@@ -117,9 +118,8 @@ get_id = get_id_func()
 
 # ============================================= Some Util Functions =============================================
 def resetGlobals() -> None:
-	global Anki_Collections, AnkiModels, totalCardCount, doc, tag, text, IMAGES_TEMP, ALLOW_IE_COMPAT
+	global AnkiModels, totalCardCount, doc, tag, text, IMAGES_TEMP, ALLOW_IE_COMPAT
 	ALLOW_IE_COMPAT = True
-	Anki_Collections = defaultdict(dict, ((SUB_DECK_MARKER, []),))
 	AnkiModels = {}
 	IMAGES_TEMP = ()
 	totalCardCount = 0
@@ -130,81 +130,141 @@ def unpack_db(path: Path) -> None:
 	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
 	cursor = conn.cursor()
 	
-	cursor.execute("SELECT * FROM col")
+	cursor.execute("SELECT models,decks FROM col")
+	
+	dt = DeckTree()
 	
 	for row in cursor.fetchall():
-		did, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags = row
-		buildColTree(decks)
+		models, decks = row
+		dt.buildColTree(decks)
 		buildModels(models)
 	
-	buildNCDRecursively(Anki_Collections, path)
+	exp = Exporter(dt)
+	exp.buildNCDRecursively(path)
 	
 	print("\tExporting into xml...\n\n")
 
 
 # ============================================= Deck Builder Functions =============================================
-
-def attach(key, branch, trunk) -> None:
-	"""Insert a branch of Decks on its trunk."""
-	parts = branch.split('::', 1)
-	if len(parts) == 1:  # branch is a leaf sub-deck
-		trunk[SUB_DECK_MARKER].append(Collection(key, parts[0]))
-	else:
-		node, others = parts
-		if node not in trunk:
-			trunk[node] = defaultdict(dict, ((SUB_DECK_MARKER, []),))
-		attach(key, others, trunk[node])
-
-
-def prettyDeckTree(d, indent=0):
-	for key, value in d.items():
-		if key == SUB_DECK_MARKER:
-			if value:
-				print('  ' * indent + str(value))
+class DeckTree(object):
+	
+	def __init__(self):
+		self.Anki_Collections = defaultdict(dict, ((SUB_DECK_MARKER, []),))
+		self.__subDecks = set([])
+	
+	def getCollection(self):
+		return self.Anki_Collections
+	
+	def attach(self, key, branch, trunk) -> None:
+		"""Insert a branch of Decks on its trunk."""
+		parts = branch.split('::', 1)
+		if len(parts) == 1:  # branch is a leaf sub-deck
+			trunk[SUB_DECK_MARKER].append(Collection(key, parts[0]))
 		else:
-			print('  ' * indent + str(key))
-			if isinstance(value, dict):
-				prettyDeckTree(value, indent + 1)
+			node, others = parts
+			if node not in trunk:
+				trunk[node] = defaultdict(dict, ((SUB_DECK_MARKER, []),))
+			self.__subDecks.add(node)
+			self.attach(key, others, trunk[node])
+	
+	def prettyDeckTree(self, d, indent=0):
+		for key, value in d.items():
+			if key == SUB_DECK_MARKER:
+				if value:
+					print('  ' * indent + str(value))
 			else:
-				print('  ' * (indent + 1) + str(value))
+				print('  ' * indent + str(key))
+				if isinstance(value, dict):
+					self.prettyDeckTree(value, indent + 1)
+				else:
+					print('  ' * (indent + 1) + str(value))
+	
+	def isSubDeck(self, name: str) -> bool:
+		return name in self.__subDecks
+	
+	def getSubDeck(self, name: str) -> Collection:
+		def helper(d: dict, in_name: str) -> Collection:
+			res = None
+			for key, value in d.items():
+				if key == SUB_DECK_MARKER:
+					if value:
+						for col in value:
+							if col.name == in_name:
+								res = col
+				else:
+					if isinstance(value, dict):
+						if res is None:
+							res = helper(value, in_name)
+			return res
+		
+		return helper(self.Anki_Collections, name)
+	
+	def buildColTree(self, m: str):
+		y = json.loads(m)
+		decks = []
+		with IncrementalBar("\tBuilding Collection Tree", max=len(y.keys())) as bar:
+			for k in y.keys():
+				self.attach(k, y[k]["name"], self.Anki_Collections)
+				bar.next()
+			bar.finish()
 
 
-def isSubDeck(d: dict, name: str) -> bool:
-	res = False
-	for key, value in d.items():
-		if key == name:
-			res = True
-		else:
-			if isinstance(value, dict):
-				if not res:
-					res = isSubDeck(value, name)
-	return res
-
-
-def getSubDeck(d: dict, name: str) -> Collection:
-	res = None
-	for key, value in d.items():
-		if key == SUB_DECK_MARKER:
-			if value:
-				for col in value:
-					if col.name == name:
-						res = col
-		else:
-			if isinstance(value, dict):
-				if res is None:
-					res = getSubDeck(value, name)
-	return res
-
-
-def buildColTree(m: str):
-	global Anki_Collections
-	y = json.loads(m)
-	decks = []
-	with IncrementalBar("\tBuilding Collection Tree", max=len(y.keys())) as bar:
-		for k in y.keys():
-			attach(k, y[k]["name"], Anki_Collections)
-			bar.next()
-		bar.finish()
+class Exporter(object):
+	global doc, tag, text, AnkiModels
+	
+	def __init__(self, deckTree: DeckTree):
+		self.dt = deckTree
+	
+	def buildNCDRecursively(self, path: Path):
+		out = Path("out")
+		out.mkdir(parents=True, exist_ok=True)
+		
+		def createCardsForDid(card_rdr, subdk):
+			conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix(), check_same_thread=False)
+			cursor = conn.cursor()
+			cursor.execute(f'SELECT id, nid, did, ord FROM cards WHERE did = {subdk.did}')
+			rows = cursor.fetchall()
+			print(f'Doing did = {subdk.did}')
+			for row in rows:
+				cid, nid, did, ordi = row
+				
+				SuperMemoElement(card_rdr.render_from_note(SQLNote(path, did, nid, AnkiModels), cid, ordi))
+		
+		def helper(a):
+			for key, value in a.items():
+				if key == SUB_DECK_MARKER:
+					if value:
+						for col in value:
+							# CachedNotes[col.did]: DeckPagePool = buildNotesForDID(path, col.did)
+							if not self.dt.isSubDeck(col.name):
+								# SuperMemoTopic(col, col.name, createCardsForDid,CardRenderer(CachedNotes[col.did]))
+								SuperMemoTopic(col, col.name, createCardsForDid, CardRenderer(None))
+				else:
+					if isinstance(value, dict):
+						with tag("SuperMemoElement"):
+							with tag('ID'):
+								text(get_id())
+							with tag('Title'):
+								text(str(key))
+							with tag('Type'):
+								text('Topic')
+							helper(value)
+							subdk: Collection = self.dt.getSubDeck(key)
+							# card_rdr = CardRenderer(CachedNotes[subdk.did])
+							card_rdr = CardRenderer(None)
+							if subdk is not None:
+								createCardsForDid(card_rdr, subdk)
+					else:
+						if isinstance(value, Collection):
+							print("THREE: ", value)
+		
+		with tag('SuperMemoCollection'):
+			with tag('Count'):
+				text(str(0))
+			helper(self.dt.getCollection())
+		
+		with open(f"{out.as_posix()}/{str(os.path.split(path)[-1].split('.')[0])}.xml", "w", encoding="utf-8") as f:
+			f.write(doc.getvalue())
 
 
 def buildModels(t: str):
@@ -214,12 +274,13 @@ def buildModels(t: str):
 	flds = []
 	with IncrementalBar("\tBuilding Models", max=len(y.keys())) as bar:
 		for k in y.keys():
-			AnkiModels[str(y[k]["id"])] = Model(str(y[k]["id"]),
-			                                    y[k]["type"],
-			                                    y[k]["css"],
-			                                    y[k]["latexPre"],
-			                                    y[k]["latexPost"]
-			                                    )
+			AnkiModels[str(y[k]["id"])] = Model(str(
+				y[k]["id"]),
+				y[k]["type"],
+				y[k]["css"],
+				y[k]["latexPre"],
+				y[k]["latexPost"]
+			)
 			
 			for fld in y[k]["flds"]:
 				flds.append((fld["name"], fld["ord"]))
@@ -243,128 +304,38 @@ def buildModels(t: str):
 		bar.finish()
 
 
-def buildNCDRecursively(d, path: Path):
-	global doc, tag, text, AnkiModels
-	CachedNotes = LRUCacheManager(200*1048576) #200 MB
-	out = Path("out")
-	out.mkdir(parents=True, exist_ok=True)
-
-	def createCardsForDid(card_rdr, subdk):
-		CachedNotes[subdk.did]: DeckPagePool = buildNotesForDID(path, subdk.did)
-		conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix(),check_same_thread=False)
-		cursor = conn.cursor()
-		cursor.execute(f'SELECT * FROM cards WHERE did = {subdk.did}')
-		rows = cursor.fetchall()
-		print(f'Doing did = {subdk.did}')
-		for row in rows:
-			cid, nid, did, ordi, mod, \
-			usn, crtype, queue, due, \
-			ivl, factor, reps, lapses, \
-			left, odue, odid, flags, data = row
-			SuperMemoElement(card_rdr.render(cid, nid, ordi))
-			#card_rdr.mock(cid, nid, ordi)
-		
-	def createCardsForDid2(card_rdr, subdk):
-		conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix(),check_same_thread=False)
-		cursor = conn.cursor()
-		cursor.execute(f'SELECT * FROM cards WHERE did = {subdk.did}')
-		rows = cursor.fetchall()
-		print(f'Doing did = {subdk.did}')
-		for row in rows:
-			cid, nid, did, ordi, mod, \
-			usn, crtype, queue, due, \
-			ivl, factor, reps, lapses, \
-			left, odue, odid, flags, data = row
-			SuperMemoElement(card_rdr.render2(SQLNote(path,did,nid,AnkiModels),cid, ordi))
-
-	def helper(a):
-		for key, value in a.items():
-			if key == SUB_DECK_MARKER:
-				if value:
-					for col in value:
-						#CachedNotes[col.did]: DeckPagePool = buildNotesForDID(path, col.did)
-						
-						if not isSubDeck(Anki_Collections, col.name):
-							#SuperMemoTopic(col, col.name, createCardsForDid,CardRenderer(CachedNotes[col.did]))
-							SuperMemoTopic(col, col.name, createCardsForDid2,CardRenderer(None))
-			else:
-				if isinstance(value, dict):
-					with tag("SuperMemoElement"):
-						with tag('ID'):
-							text(get_id())
-						with tag('Title'):
-							text(str(key))
-						with tag('Type'):
-							text('Topic')
-						helper(value)
-						
-						subdk: Collection = getSubDeck(Anki_Collections, key)
-						#card_rdr = CardRenderer(CachedNotes[subdk.did])
-						card_rdr = CardRenderer(None)
-						if subdk is not None:
-							createCardsForDid2(card_rdr, subdk)
-				else:
-					if isinstance(value, Collection):
-						print("THREE: ", value)
-	
-	with tag('SuperMemoCollection'):
-		with tag('Count'):
-			text(str(0))
-		helper(d)
-	
-	with open(f"{out.as_posix()}/" + os.path.split(path)[-1].split(".")[0] + ".xml", "w", encoding="utf-8") as f:
-		f.write(doc.getvalue())
-
-
-def buildNotesForDID(path: Path, did: str) -> DeckPagePool:
-	query = f'SELECT * FROM notes WHERE id IN (SELECT DISTINCT(nid) FROM cards WHERE did=\'{did}\') ORDER BY id ASC'
-	Notes = DeckPagePool(page_id=did, page_size=50000, path=path)
-	conn = sqlite3.connect(path.joinpath("collection.anki2").as_posix())
-	cursor = conn.cursor()
-	cursor.execute(query)
-	rows = cursor.fetchall()
-	
-	completed = []
-	with ThreadPoolExecutor() as executor:
-		futures = []
-		for row in rows:
-			nid, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data = row
-			futures.append(executor.submit(build_model_n, nid=nid,flds=flds,mid=mid,tags=tags))
-		
-		for future in furs.as_completed(futures):
-			completed.append(future.result())
-			
-	completed.sort(key=lambda x: x[0])
-	
-	for f in completed:
-		Notes[f[0]] = f[1]
-	return Notes
-
-
-def build_model_n(nid,flds, mid, tags):
-	reqModel = AnkiModels[str(mid)]
-	temp = Note(reqModel, flds)
-	temp.tags = EmptyString(tags).split(" ")
-	return tuple([nid,temp])
-
-
 def start_import(file: str) -> int:
-	p = unzip_file(Path(file))
+	filep = Path(file)
+	if check_if_unzipped(Path(filep.stem)):
+		p = Path(filep.stem)
+	else:
+		p = unzip_file(filep)
+	
 	if p is not None and type(p) is WindowsPath:
 		media = unpack_media(p)
+		print(f'\tAmount of media files: {len(media)}\n')
+		
 		out = Path("out")
 		out.mkdir(parents=True, exist_ok=True)
 		elements = Path(f"{out.as_posix()}/out_files/elements")
+		
 		try:
 			os.makedirs(elements.as_posix())
 		except:
 			pass
-
+		
 		with ThreadPoolExecutor() as executor:
 			futures = []
 			for k in media:
-				futures.append(executor.submit(moveExtractedFiles, elements=elements, k=k, media=media, p=p))
-
+				futures.append(
+					executor.submit(
+						moveExtractedFiles,
+						elements=elements,
+						k=k, media=media,
+						p=p
+					)
+				)
+		
 		unpack_db(p)
 		return 0
 	else:
@@ -394,7 +365,7 @@ def SuperMemoElement(card: Card) -> None:
 	AContent_Videos = ()
 	
 	if "[sound:" in str(card.q):
-		g = re.search(r"(?:\[sound:)([^])(?:]+)(?:\])", str(card.q))
+		g = Formatters.reSound2.search(str(card.q))
 		if g is not None:
 			for p in g.groups():
 				m = Path("{}/{}".format("out/out_files/elements", p))
@@ -407,7 +378,7 @@ def SuperMemoElement(card: Card) -> None:
 						QContent_Videos = QContent_Videos + (p,)
 	
 	if "[sound:" in str(card.a):
-		g = re.search(r"(?:\[sound:)([^])(?:]+)(?:\])", str(card.a))
+		g = Formatters.reSound2.search(str(card.a))
 		if g is not None:
 			for p in g.groups():
 				m = Path("{}/{}".format("out/out_files/elements", p))
@@ -425,6 +396,7 @@ def SuperMemoElement(card: Card) -> None:
 	enforceSectionJS = """<script>document.createElement("section");</script>"""
 	liftIERestriction = """<meta http-equiv="X-UA-Compatible" content="IE=10">"""
 	forcedCss = """<style>img{max-width:50%;}</style>"""
+	
 	with tag('SuperMemoElement'):
 		with tag('ID'):
 			text(get_id())
@@ -434,21 +406,27 @@ def SuperMemoElement(card: Card) -> None:
 			with tag('Question'):
 				a = wrapHtmlIn(card.q, 'head', 'body')
 				res = cleanHtml(a, imgcmp=IMAGES_AS_COMPONENT)
+				
 				if IMAGES_AS_COMPONENT:
 					IMAGES_TEMP = IMAGES_TEMP + res["imgs"]
+				
 				a = insertHtmlAt(res["soup"], enforceSectionJS, 'head', 0)
+				
 				if ALLOW_IE_COMPAT:
 					a = insertHtmlAt(a, liftIERestriction, 'head', 0)
+				
 				if not IMAGES_AS_COMPONENT and len(IMAGES_TEMP) != 0:
 					a = insertHtmlAt(a, forcedCss, 'head', 0)
-				a = strip_control_characters(a)
-				a = a.encode("ascii", "xmlcharrefreplace").decode("utf-8")
+				
+				a = strip_control_characters(a) \
+					.encode("ascii", "xmlcharrefreplace") \
+					.decode("utf-8")
 				text(a)
 			
 			for s in QContent_Videos:
 				with tag('Video'):
 					with tag('URL'):
-						text(os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\{}".format(s))
+						text(SMMEDIA.format(s))
 					with tag('Name'):
 						text(s)
 					if DEFAULT_SIDE != SIDES[2] and \
@@ -466,7 +444,7 @@ def SuperMemoElement(card: Card) -> None:
 			for s in QContent_Sounds:
 				with tag('Sound'):
 					with tag('URL'):
-						text(os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\{}".format(s))
+						text(SMMEDIA.format(s))
 					with tag('Name'):
 						text(s)
 					with tag('Text'):
@@ -503,7 +481,7 @@ def SuperMemoElement(card: Card) -> None:
 			for s in AContent_Videos:
 				with tag('Video'):
 					with tag('URL'):
-						text(os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\{}".format(s))
+						text(os.path.expandvars(SMMEDIA.format(s)))
 					with tag('Name'):
 						text(s)
 					if DEFAULT_SIDE != SIDES[2] and \
@@ -521,7 +499,7 @@ def SuperMemoElement(card: Card) -> None:
 			for s in AContent_Sounds:
 				with tag('Sound'):
 					with tag('URL'):
-						text(os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\{}".format(s))
+						text(os.path.expandvars(SMMEDIA.format(s)))
 					with tag('Name'):
 						text(s)
 					with tag('Text'):
@@ -541,7 +519,7 @@ def SuperMemoElement(card: Card) -> None:
 			for img in IMAGES_TEMP:
 				with tag('Image'):
 					with tag('URL'):
-						text(os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\{}".format(img))
+						text(os.path.expandvars(SMMEDIA.format(img)))
 					with tag('Name'):
 						text(img)
 					if DEFAULT_SIDE == SIDES[1]:
@@ -580,8 +558,7 @@ def SuperMemoTopic(col, ttl, func, args) -> None:
 			text(str(ttl))
 		with tag('Type'):
 			text('Topic')
-		func(args,col)
-		
+		func(args, col)
 
 
 # ============================================= Configuration =============================================
@@ -686,9 +663,9 @@ def main():
 			ep("Error: %s - %s." % (e.filename, e.strerror))
 	
 	# creating smmedia if it doesnot exist
-	if not os.path.exists(str(os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\")):
+	if not os.path.exists(SMMEDIA):
 		try:
-			os.makedirs(str(os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\"))
+			os.makedirs(SMMEDIA)
 		except OSError as e:
 			if e.errno != errno.EEXIST:
 				raise
@@ -696,30 +673,37 @@ def main():
 	# moving media files to smmedia
 	files = os.listdir(os.getcwd() + "\\out\\out_files\\elements")
 	fonts = [x for x in files if x.endswith(".ttf")]
+	failed_fonts = []
 	for font in fonts:
+		font_path = os.getcwd() + "\\out\\out_files\\elements\\" + font
 		try:
-			font_path = os.getcwd() + "\\out\\out_files\\elements\\" + font
 			install_font(font_path.replace("\\", "/"))
 		except:
-			ep(
-				"Error: Failed to install the font {}. \n\tRe-run script in admin mode if it is not or manually install it Path[{}].\n".format(
-					font, font_path))
-
+			failed_fonts.append((font, font_path))
+	
+	if len(failed_fonts) > 0:
+		ep("Error: Failed to install the fonts:\n")
+	
+	for ff in failed_fonts:
+		f, fp = ff
+		print(f'\t{f} [{fp}]')
+	
+	ep("\tRe-run script in admin mode if it is not or manually install the font.")
+	
 	if __CONVERTER_PROCESS is not None:
-		Q1.put(("EXIT" , "EXIT"))
+		Q1.put(("EXIT", "EXIT"))
 	
-	print("Moving Media Files DON'T CLOSE!")
-	# with ThreadPoolExecutor() as executor:
-	# 	futures = []
-	# 	for f in files:
-	# 		futures.append(executor.submit(move_media_to_smmedia, f=f))
-	
+	print("\nMoving Media Files DON'T CLOSE!")
+	with ThreadPoolExecutor() as executor:
+		futures = []
+		for f in files:
+			futures.append(executor.submit(move_media_to_smmedia, f=f))
 	# deleting temp media files
-	# try:
-	# 	shutil.rmtree(os.getcwd() + "\\out\\out_files\\elements")
-	# 	shutil.rmtree(os.getcwd() + "\\out\\out_files")
-	# except OSError as e:
-	# 	ep("Error: %s - %s." % (e.filename, e.strerror))
+	try:
+		shutil.rmtree(os.getcwd() + "\\out\\out_files\\elements")
+		shutil.rmtree(os.getcwd() + "\\out\\out_files")
+	except OSError as e:
+		ep("Error: %s - %s." % (e.filename, e.strerror))
 
 
 if __name__ == '__main__':

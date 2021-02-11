@@ -69,10 +69,11 @@ class Card:
 
 
 class Collection:
-	def __init__(self, did, name):
+	def __init__(self, did, name,is_subdeck=False ):
 		self.name = name
 		self.did = did
 		self.cards = []
+		self.isSub = is_subdeck
 	
 	def __str__(self):
 		return "<Collection{name:" + EmptyString(self.name) + ",did:" + EmptyString(self.did) + ", cards:[" + ','.join(

@@ -17,6 +17,8 @@ def move_media_to_smmedia(f):
 def moveExtractedFiles(elements, k, media, p):
 	shutil.move(p.joinpath(k).as_posix(), elements.joinpath(media[k]).as_posix())
 
+def count_files(dir:Path):
+    return len([1 for x in list(os.scandir(dir)) if x.is_file()])
 
 def unpack_media(media_dir: Path):
 	# if not media_dir.exists():
@@ -24,14 +26,21 @@ def unpack_media(media_dir: Path):
 	
 	with open(media_dir.joinpath("media").as_posix(), "r") as f:
 		m = json.loads(f.read())
-		print(f'\tAmount of media files: {len(m)}\n')
 	return m
 
+def check_if_unzipped(base_dir: Path) -> bool:
+	if os.path.isfile(base_dir.joinpath("media")):
+		if count_files(
+				Path("out/out_files/elements")
+		               ) >= len(unpack_media(base_dir)):
+			return True
+		
+	return False
 
 def unzip_file(zipfile_path: Path) -> Path:
 	"""Attempts at unzipping the file, if the apkg is corrupt or is not appear to be zip, raises an Exception"""
 	# if "zip" not in magic.from_file(zipfile_path.as_posix(), mime=True):
 	# 	raise Exception("Error: apkg does not appear to be a ZIP file...")
-	# with ZipFile(zipfile_path.as_posix(), 'r') as apkg:
-	# 	apkg.extractall(zipfile_path.stem)
+	with ZipFile(zipfile_path.as_posix(), 'r') as apkg:
+	 	apkg.extractall(zipfile_path.stem)
 	return Path(zipfile_path.stem)
