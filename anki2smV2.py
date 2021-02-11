@@ -9,13 +9,13 @@ import logging
 import cssutils
 import threading
 import itertools
+import Configuration
 from os import listdir
 from yattag import Doc
 from magic import magic
-from config import Config
 from os.path import isfile, join
 from Rendering import Formatters
-import concurrent.futures as furs
+from Configuration import SMMEDIA
 from collections import defaultdict
 from Utils.Fonts import install_font
 from pathlib import Path, WindowsPath
@@ -25,7 +25,6 @@ from Utils.ErrorHandling import ep, pp, wp
 from Rendering.Renderer import CardRenderer
 from Rendering.MediaConverter import __CONVERTER_PROCESS, Q1
 from concurrent.futures.thread import ThreadPoolExecutor
-from Caching.LRUCaching import DeckPagePool, LRUCacheManager
 from Utils.FileUtils import \
 	(
 	move_media_to_smmedia,
@@ -47,8 +46,7 @@ from Models import \
 	Template,
 	Card,
 	Collection,
-	Note,
-	EmptyString, SQLNote
+	SQLNote
 )
 
 sys.setrecursionlimit(200000000)
@@ -62,19 +60,11 @@ totalCardCount = 0
 
 doc, tag, text = Doc().tagtext()
 
-IMPORT_LEARNING_DATA = False
-IMAGES_AS_COMPONENT = False
-ALLOW_IE_COMPAT = True
-
-SMMEDIA = os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\{}"
-
-SIDES = ("q", "a", "anki")
-
-DEFAULT_SIDE = SIDES[2]
-
 IMAGES_TEMP = ()
 FAILED_DECKS = []
 DATA_ACCESS = None
+ALLOW_IE_COMPAT = True
+config = Configuration.Config()
 
 
 # ============================================ Other Util Stuff But Deck related =================================
@@ -118,7 +108,7 @@ get_id = get_id_func()
 
 # ============================================= Some Util Functions =============================================
 def resetGlobals() -> None:
-	global AnkiModels, totalCardCount, doc, tag, text, IMAGES_TEMP, ALLOW_IE_COMPAT
+	global AnkiModels, totalCardCount, doc, tag, text, IMAGES_TEMP
 	ALLOW_IE_COMPAT = True
 	AnkiModels = {}
 	IMAGES_TEMP = ()
@@ -355,7 +345,7 @@ def cardHasData(card: Card) -> bool:
 
 
 def SuperMemoElement(card: Card) -> None:
-	global doc, tag, text, get_id, IMAGES_TEMP, DEFAULT_SIDE, SIDES
+	global doc, tag, text, get_id, IMAGES_TEMP,config
 	IMAGES_TEMP = ()
 	
 	QContent_Sounds = ()
@@ -405,9 +395,9 @@ def SuperMemoElement(card: Card) -> None:
 		with tag('Content'):
 			with tag('Question'):
 				a = wrapHtmlIn(card.q, 'head', 'body')
-				res = cleanHtml(a, imgcmp=IMAGES_AS_COMPONENT)
+				res = cleanHtml(a, imgcmp=config.images_as_component)
 				
-				if IMAGES_AS_COMPONENT:
+				if config.images_as_component:
 					IMAGES_TEMP = IMAGES_TEMP + res["imgs"]
 				
 				a = insertHtmlAt(res["soup"], enforceSectionJS, 'head', 0)
@@ -415,7 +405,7 @@ def SuperMemoElement(card: Card) -> None:
 				if ALLOW_IE_COMPAT:
 					a = insertHtmlAt(a, liftIERestriction, 'head', 0)
 				
-				if not IMAGES_AS_COMPONENT and len(IMAGES_TEMP) != 0:
+				if not config.images_as_component and len(IMAGES_TEMP) != 0:
 					a = insertHtmlAt(a, forcedCss, 'head', 0)
 				
 				a = strip_control_characters(a) \
@@ -429,8 +419,8 @@ def SuperMemoElement(card: Card) -> None:
 						text(SMMEDIA.format(s))
 					with tag('Name'):
 						text(s)
-					if DEFAULT_SIDE != SIDES[2] and \
-							DEFAULT_SIDE != SIDES[0]:
+					if config.default_side != Configuration.SIDES[2] and \
+							config.default_side != Configuration.SIDES[0]:
 						with tag("Question"):
 							text("F")
 						with tag("Answer"):
@@ -449,8 +439,8 @@ def SuperMemoElement(card: Card) -> None:
 						text(s)
 					with tag('Text'):
 						text("")
-					if DEFAULT_SIDE != SIDES[2] and \
-							DEFAULT_SIDE != SIDES[0]:
+					if config.default_side != Configuration.SIDES[2] and \
+							config.default_side != Configuration.SIDES[0]:
 						with tag("Question"):
 							text("F")
 						with tag("Answer"):
@@ -466,13 +456,13 @@ def SuperMemoElement(card: Card) -> None:
 			# urls.append(m[0]) if len(m) else ""
 			
 			with tag('Answer'):
-				res = cleanHtml(card.a, imgcmp=IMAGES_AS_COMPONENT)
-				if IMAGES_AS_COMPONENT:
+				res = cleanHtml(card.a, imgcmp=config.images_as_component)
+				if config.images_as_component:
 					IMAGES_TEMP = IMAGES_TEMP + res["imgs"]
 				a = insertHtmlAt(res["soup"], enforceSectionJS, 'head', 0)
 				if ALLOW_IE_COMPAT:
 					a = insertHtmlAt(a, liftIERestriction, 'head', 0)
-				if not IMAGES_AS_COMPONENT and len(IMAGES_TEMP) != 0:
+				if not config.images_as_component and len(IMAGES_TEMP) != 0:
 					a = insertHtmlAt(a, forcedCss, 'head', 0)
 				a = strip_control_characters(a)
 				a = a.encode("ascii", "xmlcharrefreplace").decode("utf-8")
@@ -484,8 +474,8 @@ def SuperMemoElement(card: Card) -> None:
 						text(os.path.expandvars(SMMEDIA.format(s)))
 					with tag('Name'):
 						text(s)
-					if DEFAULT_SIDE != SIDES[2] and \
-							DEFAULT_SIDE != SIDES[1]:
+					if config.default_side != Configuration.SIDES[2] and \
+							config.default_side != Configuration.SIDES[1]:
 						with tag("Question"):
 							text("T")
 						with tag("Answer"):
@@ -504,8 +494,8 @@ def SuperMemoElement(card: Card) -> None:
 						text(s)
 					with tag('Text'):
 						text("")
-					if DEFAULT_SIDE != SIDES[2] and \
-							DEFAULT_SIDE != SIDES[1]:
+					if config.default_side != Configuration.SIDES[2] and \
+							config.default_side != Configuration.SIDES[1]:
 						with tag("Question"):
 							text("T")
 						with tag("Answer"):
@@ -522,12 +512,12 @@ def SuperMemoElement(card: Card) -> None:
 						text(os.path.expandvars(SMMEDIA.format(img)))
 					with tag('Name'):
 						text(img)
-					if DEFAULT_SIDE == SIDES[1]:
+					if config.default_side == Configuration.SIDES[1]:
 						with tag("Question"):
 							text("F")
 						with tag("Answer"):
 							text("T")
-					elif DEFAULT_SIDE == SIDES[0]:
+					elif config.default_side == Configuration.SIDES[0]:
 						with tag("Question"):
 							text("T")
 						with tag("Answer"):
@@ -561,67 +551,10 @@ def SuperMemoTopic(col, ttl, func, args) -> None:
 		func(args, col)
 
 
-# ============================================= Configuration =============================================
-def loadConfig():
-	global IMAGES_AS_COMPONENT, DEFAULT_SIDE, IMPORT_LEARNING_DATA, SIDES
-	f = open('anki2smConfig.cfg')
-	cfg = Config(f)
-	try:
-		tempIMAGES_AS_COMPONENT = cfg.get("img_as_component", False)
-		tempDEFAULT_SIDE = cfg["default_side"] if cfg["default_side"] in SIDES else "anki"
-		tempIMPORT_LEARNING_DATA = cfg.get("import_learning_data", False)
-		
-		IMAGES_AS_COMPONENT = tempIMAGES_AS_COMPONENT
-		DEFAULT_SIDE = tempDEFAULT_SIDE
-		IMPORT_LEARNING_DATA = tempIMPORT_LEARNING_DATA
-	except:
-		ep("Error: Corrupt Configuration file!")
-		return -1
-	finally:
-		f.close()
-	return 0
-
-
-def saveConfig():
-	global IMAGES_AS_COMPONENT, DEFAULT_SIDE, IMPORT_LEARNING_DATA
-	with open('anki2smConfig.cfg', 'w+') as f:
-		f.write(f'{"img_as_component"}:{IMAGES_AS_COMPONENT}\n')
-		f.write(f'{"default_side"}:\"{DEFAULT_SIDE}\"\n')
-		f.write(f'{"import_learning_data"}:{IMPORT_LEARNING_DATA}\n')
-
-
-def prompt_for_config():
-	global IMAGES_AS_COMPONENT, DEFAULT_SIDE
-	# Asking the user how they want the images to be displayed
-	print("Do You want images as:")
-	print("\tY - A separate component ")
-	print("\tN - Embedded within the Html - experimental")
-	tempInp: str = str(input(""))
-	if tempInp.casefold() in "Y".casefold():
-		IMAGES_AS_COMPONENT = True
-	elif tempInp.casefold() != "N".casefold():
-		print("Wrong input provided, proceeding as embedded")
-	# Asking the user where they want the components to end up
-	print("Where do you want the components to end up:")
-	print("\t 1 = Front")
-	print("\t 2 = Back ")
-	print("\t 3 = Leave them as is")
-	tempInp: int = int(input(""))
-	if 0 >= tempInp > 3:
-		print("Wrong input provided, proceeding as it is in anki")
-	else:
-		DEFAULT_SIDE = SIDES[tempInp - 1]
-	# Asking the user if they want to save the options as a configuration file
-	print("Do you want to save options for later? (Y/N)")
-	tempInp: str = str(input(""))
-	if tempInp.casefold() in "Y".casefold():
-		saveConfig()
-
-
 # ============================================= Main Function =============================================
 
 def main():
-	global totalCardCount, IMAGES_AS_COMPONENT, DEFAULT_SIDE, SIDES, ALLOW_IE_COMPAT
+	global totalCardCount, config
 	
 	mypath = str(os.getcwd() + "\\apkgs\\")
 	apkgfiles = [f for f in listdir(mypath) if isfile(join(mypath, f)) and f.endswith(".apkg")]
@@ -630,11 +563,12 @@ def main():
 		ep("Error: No apkg in apkgs folder.")
 		exit(0)
 	
+	
 	if os.path.isfile('./anki2smConfig.cfg'):
-		if 0 > loadConfig():
-			prompt_for_config()
+		if 0 > config.loadConfig():
+			config.prompt_for_config()
 	else:
-		prompt_for_config()
+		config.prompt_for_config()
 	
 	for i in range(len(apkgfiles)):
 		pp(f'Processing {apkgfiles[i]} : {i + 1}/{len(apkgfiles)}')
