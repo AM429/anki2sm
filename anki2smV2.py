@@ -64,7 +64,7 @@ IMAGES_TEMP = ()
 FAILED_DECKS = []
 DATA_ACCESS = None
 ALLOW_IE_COMPAT = True
-config = Configuration.Config()
+config = Configuration.ConverterConfig()
 
 
 # ============================================ Other Util Stuff But Deck related =================================

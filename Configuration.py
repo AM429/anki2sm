@@ -7,7 +7,7 @@ SIDES = ("q", "a", "anki")
 SMMEDIA = os.path.expandvars(r'%LocalAppData%') + "\\temp\\smmedia\\{}"
 
 
-class Config(object):
+class ConverterConfig(object):
 	def __init__(self):
 		self.images_as_component = None
 		self.default_side = SIDES[2]
